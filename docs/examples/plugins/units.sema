@@ -1,0 +1,117 @@
+;; Unit converter for Helge Launcher, written in Sema (https://sema-lang.com).
+;;
+;; Type "10 km in mi", "72 f to c" or "3.5 kg lb".
+;; Enter pastes the result, ⌘Enter copies it.
+;;
+;; config.toml:
+;;   [[plugin]]
+;;   name = "Units"
+;;   exec = ["sema", "--no-llm", "plugins/units.sema", "--"]
+;;   prefix = "u"
+
+;; The launcher appends the query after "--".
+(defn script-args ()
+  (let loop ((xs (sys/args)))
+    (cond
+      ((null? xs) '())
+      ((equal? (first xs) "--") (rest xs))
+      (else (loop (rest xs))))))
+
+(define query (string/lower (string/join (script-args) " ")))
+
+;; Linear units: name -> (dimension factor-to-base-unit).
+(define units
+  {"mm" [:length 0.001]
+   "cm" [:length 0.01]
+   "m" [:length 1.0]
+   "km" [:length 1000.0]
+   "in" [:length 0.0254]
+   "ft" [:length 0.3048]
+   "yd" [:length 0.9144]
+   "mi" [:length 1609.344]
+   "mg" [:mass 0.000001]
+   "g" [:mass 0.001]
+   "kg" [:mass 1.0]
+   "oz" [:mass 0.028349523125]
+   "lb" [:mass 0.45359237]
+   "ml" [:volume 0.001]
+   "l" [:volume 1.0]
+   "cup" [:volume 0.2365882365]
+   "gal" [:volume 3.785411784]
+   "kmh" [:speed 0.2777777778]
+   "mph" [:speed 0.44704]
+   "ms" [:speed 1.0]
+   "kn" [:speed 0.5144444444]
+   "b" [:data 1.0]
+   "kb" [:data 1000.0]
+   "mb" [:data 1000000.0]
+   "gb" [:data 1000000000.0]
+   "kib" [:data 1024.0]
+   "mib" [:data 1048576.0]
+   "gib" [:data 1073741824.0]})
+
+;; Temperatures are not linear, so they convert through Celsius.
+(defn to-celsius (value unit)
+  (cond
+    ((equal? unit "c") value)
+    ((equal? unit "f") (/ (* (- value 32) 5) 9))
+    ((equal? unit "k") (- value 273.15))))
+
+(defn from-celsius (value unit)
+  (cond
+    ((equal? unit "c") value)
+    ((equal? unit "f") (+ (/ (* value 9) 5) 32))
+    ((equal? unit "k") (+ value 273.15))))
+
+(defn temperature? (unit)
+  (or (equal? unit "c") (equal? unit "f") (equal? unit "k")))
+
+;; Returns the converted number, or a string explaining why it can't.
+(defn convert (value from to)
+  (cond
+    ((and (temperature? from) (temperature? to))
+      (from-celsius (to-celsius value from) to))
+    ((not (get units from)) f"unknown unit: ${from}")
+    ((not (get units to)) f"unknown unit: ${to}")
+    ((not (equal? (first (get units from)) (first (get units to))))
+      f"can't convert ${from} to ${to}")
+    (else
+      (/ (* value (nth (get units from) 1))
+        (nth (get units to) 1)))))
+
+;; Round to 4 decimals and drop trailing zeros: 6.21371 -> "6.2137", 3.0 -> "3".
+(defn pretty (n)
+  (let ((rounded (math/round-to (float n) 4)))
+    (if (= rounded (round rounded))
+      (number->string (int rounded))
+      (number->string rounded))))
+
+(defn item (title subtitle actions)
+  {:title title :subtitle subtitle :icon "ruler" :actions actions})
+
+(defn result-item (value from to)
+  (let ((text (pretty value)))
+    (item f"${text} ${to}"
+      f"${query}"
+      [{:title "Paste" :paste text}
+       {:title "Copy" :copy text}])))
+
+(defn items ()
+  (let ((m
+          (regex/match
+            #"^\s*(-?[0-9.]+)\s*([a-z]+)\s+(?:in\s+|to\s+)?([a-z]+)\s*$"
+            query)))
+    (cond
+      ((equal? (string/trim query) "") [])
+      ((nil? m) [(item "…" "10 km in mi" [])])
+      (else
+        (let* ((groups (:groups m))
+               (value (string->number (nth groups 0)))
+               (from (nth groups 1))
+               (to (nth groups 2))
+               (result (if value (convert value from to) "not a number")))
+          (if (string? result)
+            [(item "…" result [])]
+            [(result-item result from to)]))))))
+
+(println (json/encode {:items (items)}))

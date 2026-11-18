@@ -1,0 +1,77 @@
+;; Markdown notes search for Helge Launcher, written in Sema (https://sema-lang.com).
+;;
+;; Searches every *.md file under $NOTES_DIR (default ~/Documents/Notes) by
+;; file name, first heading and contents. Empty query: the 30 most recently edited notes.
+;; Enter opens the note, ⌘Enter reveals it in Finder, ⌘K copies its path.
+;;
+;; config.toml:
+;;   [[plugin]]
+;;   name = "Notes"
+;;   exec = ["sema", "--no-llm", "plugins/notes.sema", "--"]
+;;   prefix = "n"
+;;   icon = "note.text"
+
+;; The launcher appends the query after "--".
+(defn script-args ()
+  (let loop ((xs (sys/args)))
+    (cond
+      ((null? xs) '())
+      ((equal? (first xs) "--") (rest xs))
+      (else (loop (rest xs))))))
+
+(define query (string/lower (string/trim (string/join (script-args) " "))))
+
+(define notes-dir
+  (or (env "NOTES_DIR")
+    (path/join (env "HOME") "Documents" "Notes")))
+
+;; First "# Heading" in the file, else the file name without .md.
+(defn title-of (path text)
+  (let ((m (regex/match #"(?m)^#\s+(.+)$" text)))
+    (if m
+      (string/trim (first (:groups m)))
+      (string/replace (path/basename path) ".md" ""))))
+
+(defn note (path)
+  (let ((text (file/read path)))
+    {:path path
+     :title (title-of path text)
+     :text (string/lower text)
+     :modified (:modified (file/info path))}))
+
+(defn matches? (n)
+  (or (equal? query "")
+    (string/contains? (string/lower (:title n)) query)
+    (string/contains? (string/lower (:path n)) query)
+    (string/contains? (:text n) query)))
+
+;; Title matches rank above body-only matches; newer notes first within each group.
+(defn rank (n)
+  (+ (if (string/contains? (string/lower (:title n)) query) 0 1e15)
+    (- (:modified n))))
+
+(defn relative (path)
+  (string/replace path (string-append notes-dir "/") ""))
+
+(defn note->item (n)
+  {:id (:path n)
+   :title (:title n)
+   :subtitle (relative (:path n))
+   :icon "note.text"
+   :actions [{:title "Open" :open (:path n)}
+    {:title "Reveal in Finder" :run f"open -R ${(shell/quote (:path n))}"}
+    {:title "Copy Path" :copy (:path n)}]})
+
+(define items
+  (if (not (file/is-directory? notes-dir))
+    [{:title "No notes folder"
+      :subtitle notes-dir
+      :icon "exclamationmark.triangle"}]
+    (->> (file/glob (path/join notes-dir "**" "*.md"))
+      (map note)
+      (filter matches?)
+      (sort-by rank)
+      (take 30)
+      (map note->item))))
+
+(println (json/encode {:items items}))

@@ -1,0 +1,76 @@
+;; Hacker News for Helge Launcher, written in Sema (https://sema-lang.com).
+;;
+;; Empty query: the current front page. Anything else: a story search.
+;; Enter opens the link, ⌘Enter opens the comments, ⌘K copies the link.
+;;
+;; config.toml:
+;;   [[plugin]]
+;;   name = "Hacker News"
+;;   exec = ["sema", "--no-llm", "plugins/hacker-news.sema", "--"]
+;;   prefix = "hn"
+;;   icon = "newspaper"
+
+;; The launcher appends the query after "--".
+(defn script-args ()
+  (let loop ((xs (sys/args)))
+    (cond
+      ((null? xs) '())
+      ((equal? (first xs) "--") (rest xs))
+      (else (loop (rest xs))))))
+
+(define query (string/trim (string/join (script-args) " ")))
+
+(define api "https://hn.algolia.com/api/v1")
+
+;; Percent-encode a string for a URL query (RFC 3986 unreserved characters pass through).
+(defn unreserved? (byte)
+  (or (and (>= byte 48) (<= byte 57)) ; 0-9
+    (and (>= byte 65) (<= byte 90)) ; A-Z
+    (and (>= byte 97) (<= byte 122)) ; a-z
+    (member byte '(45 46 95 126)))) ; - . _ ~
+
+(defn encode-byte (byte)
+  (if (unreserved? byte)
+    (char->string (integer->char byte))
+    (string-append "%"
+      (string/pad-left (string/upper (number->string byte 16)) 2 "0"))))
+
+(defn url-encode (s)
+  (string/join (map encode-byte (bytevector->list (string->utf8 s))) ""))
+
+(define url
+  (if (equal? query "")
+    f"${api}/search?tags=front_page&hitsPerPage=30"
+    f"${api}/search?tags=story&hitsPerPage=30&query=${(url-encode query)}"))
+
+(defn comments-url (hit)
+  f"https://news.ycombinator.com/item?id=${(:objectID hit)}")
+
+;; Ask HN and similar posts have no external URL; link to the discussion instead.
+(defn story-url (hit)
+  (or (:url hit) (comments-url hit)))
+
+(defn hit->item (hit)
+  {:id (:objectID hit)
+   :title (:title hit)
+   :subtitle f"${(:points hit)} points · ${(:num_comments hit)} comments · ${(:author hit)}"
+   :icon "newspaper"
+   :actions [{:title "Open" :open (story-url hit)}
+    {:title "Open Comments" :open (comments-url hit)}
+    {:title "Copy Link" :copy (story-url hit)}]})
+
+(defn error-item (message)
+  [{:title "Hacker News failed"
+    :subtitle message
+    :icon "exclamationmark.triangle"}])
+
+(define items
+  (try
+    (let ((response (http/get url {:timeout 10000})))
+      (if (= (:status response) 200)
+        (map hit->item (:hits (json/decode (:body response))))
+        (error-item f"HTTP ${(:status response)}")))
+    (catch e
+      (error-item (:message e)))))
+
+(println (json/encode {:items items}))

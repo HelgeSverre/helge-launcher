@@ -4,7 +4,7 @@
 
 ![macOS 14+](https://img.shields.io/badge/macOS-14%2B-facc15) ![MIT](https://img.shields.io/badge/license-MIT-facc15)
 
-A small macOS launcher (Swift, AppKit + SwiftUI) that replaces the parts of Raycast that get used: apps, CleanShot, clipboard history, snippets, emoji, 1Password and AI through `opencode serve`.
+A keyboard launcher for macOS, written in Swift. It opens apps, runs CleanShot X captures, keeps clipboard history, pastes snippets and emoji, copies 1Password secrets and answers questions through [opencode](https://opencode.ai). It is configured in one TOML file and extended with plugins in any language.
 
 ## Install
 
@@ -12,36 +12,45 @@ A small macOS launcher (Swift, AppKit + SwiftUI) that replaces the parts of Rayc
 brew install --cask helgesverre/tap/helge-launcher
 ```
 
-Signed with Developer ID and notarized. Releases: [docs/releasing.md](docs/releasing.md).
+Signed with Developer ID and notarized; macOS 14 or later.
 
-## Build
+1. Turn off Spotlight's ⌘Space (System Settings → Keyboard → Keyboard Shortcuts → Spotlight), or set another `hotkey` in the config.
+2. Open Helge Launcher. A magnifier appears in the menu bar.
+3. When asked, drag the app into the Accessibility list. The launcher opens System Settings and pins its icon under the window for this; it's needed to paste into other apps.
 
-```sh
-just build      # debug
-just bundle     # build/Helge Launcher.app (Developer ID signed when available)
-just install    # copy the dev build to /Applications and start
-just release    # universal, signed, notarized ZIP in dist/
-just search tp  # headless ranked search
-just ask "…"    # headless AI question
-```
+## What it does
+
+| Feature | How |
+|---|---|
+| Apps | Type part of the name. Results rank by how often and how recently you open things. |
+| CleanShot X | Capture Area, Record Screen, Capture Text (OCR), Restore Recently Closed and more |
+| Clipboard history | "Clipboard History": text, links, colours, files and images; pin entries you keep |
+| Snippets | Saved text with placeholders such as `{date}` and `{clipboard}`, or `op://` 1Password references ([snippets.md](docs/snippets.md)) |
+| Emoji | "Search Emoji & Symbols" |
+| 1Password | "1Password": search items, copy password, username or one-time code (via the `op` CLI) |
+| AI | Tab sends what you typed to the AI; follow-ups continue the chat ([ai.md](docs/ai.md)) |
+| Commands | Your own: open a URL, file or app, or run a shell command; optional global hotkey |
+| Plugins | Any program that prints JSON adds its own list: calculators, repo search, notes… ([plugins.md](docs/plugins.md)) |
 
 ## Keys
 
 | Key | Action |
 |---|---|
-| ⌘Space (config `hotkey`) | toggle panel |
-| ↵ / ⌘↵ | primary / secondary action |
-| ⌘K | all actions for the selected item |
-| Tab | ask AI with the current query |
-| Esc, ⌫ on empty | back / close |
-| ⌘N (AI) | new chat |
-| ↵ on empty (AI) | copy last answer |
-| ⌘, | edit config |
-| ⌘A ⌘C ⌘V ⌘X ⌘Z | text editing in the search field |
+| ⌘Space | Open or close (config `hotkey`) |
+| ↑ ↓ | Select |
+| ↵ | Run the selected item's first action, or open it |
+| ⌘↵ | Second action (for example Copy instead of Paste) |
+| ⌘K | All actions for the selected item |
+| Tab | Ask the AI with what you typed |
+| Esc, or ⌫ on an empty field | Back, then close |
+| ⌘N | New AI chat |
+| ↵ on an empty AI field | Copy the last answer |
+| ⌘, | Edit the config |
+| ⌘A ⌘C ⌘V ⌘X ⌘Z | Text editing in the search field |
 
-## Config
+## Configuration
 
-`~/.config/hl/config.toml`, reloaded on save. `include` merges more files (`snippets.toml` holds the snippets imported from Raycast).
+`~/.config/hl/config.toml`, applied on save:
 
 ```toml
 hotkey = "cmd+space"
@@ -49,109 +58,77 @@ launch_at_login = true
 include = ["snippets.toml"]
 
 [ai]
-model = "opencode-go/deepseek-v4.1-flash"   # provider/model as listed by `opencode models`
-opencode = "opencode"                        # binary; PATH comes from your interactive zsh
-# system = "Answer briefly."
-
-[clipboard]
-max_items = 500
-hotkey = "cmd+shift+v"
-ignore_apps = ["com.1password.1password"]
-
-[onepassword]
-clear_after = 90              # seconds before a copied secret is cleared
-use_service_account = false   # false: drop OP_SERVICE_ACCOUNT_TOKEN, use the desktop-app integration
-# account = "my.1password.com"
-
-[cleanshot]
-enabled = true
+model = "opencode-go/deepseek-v4.1-flash"
 
 [[command]]
-name = "Flush DNS"
-run = "sudo -n dscacheutil -flushcache"   # or open = "<URL, app or file path>"; optional hotkey = "cmd+alt+d"
+name = "Downloads"
+open = "~/Downloads"
+hotkey = "cmd+alt+d"
 
 [[snippet]]
-name = "date"
-text = "Today is {date}"      # placeholders and 1Password references: see Snippets below
+name = "stamp"
+text = "{date:yyyyMMdd-HHmmss}"
 
 [[plugin]]
-name = "Example"
-exec = "plugins/example.sh"   # relative to ~/.config/hl
-prefix = "ex"
+name = "Units"
+exec = ["sema", "--no-llm", "plugins/units.sema", "--"]
+prefix = "u"
 ```
 
-## Snippets
+## Documentation
 
-Snippets appear in the main search and under **Search Snippets**. ↵ pastes into the app you were in, ⌘↵ copies.
-
-```toml
-[[snippet]]
-name = "standup"
-keyword = "su"                # optional extra search term
-text = """
-Yesterday: {clipboard}
-Today ({date}):
-"""
-```
-
-Placeholders are replaced each time the snippet is used:
-
-| Placeholder | Becomes | Example |
-|---|---|---|
-| `{date}` | today, `yyyy-MM-dd` | `2026-11-18` |
-| `{time}` | now, `HH:mm` (24 h) | `14:05` |
-| `{clipboard}` | the current clipboard text | |
-
-Text without placeholders is pasted as written. Use TOML `"""…"""` for multi-line text.
-
-**1Password references.** When the whole `text` is a single `op://vault/item/field` reference, the value is read from 1Password with `op read` at the moment you paste, so the secret is never stored in the config:
-
-```toml
-[[snippet]]
-name = "OpenAI key"
-text = "op://Personal/OpenAI/credential"
-```
-
-- Copy a reference from 1Password with **Copy Secret Reference** on a field, or write it as vault / item / field name.
-- The list shows the reference, never the value.
-- It works only when the reference is the entire text (one line); `op://` inside a longer text is pasted literally.
-- If `op` fails (locked, approval declined), nothing is pasted.
-
-## Plugins
-
-A plugin is any executable. It is called as `<exec> <query>` (also `$HL_QUERY`) on every keystroke (debounced) and prints:
-
-```json
-{"items": [{"title": "Deploy site", "subtitle": "ploi", "icon": "paperplane",
-            "actions": [{"title": "Open", "open": "https://…"},
-                        {"title": "Copy ID", "copy": "123"},
-                        {"title": "Paste", "paste": "…"},
-                        {"title": "Run", "run": "shell command"}]}]}
-```
-
-`icon` is an SF Symbol name, an emoji or a file path.
+| | |
+|---|---|
+| [docs/config.md](docs/config.md) | Every option: hotkeys, clipboard, 1Password, CleanShot, commands, files on disk |
+| [docs/snippets.md](docs/snippets.md) | Snippets, all placeholders, custom date formats, 1Password references |
+| [docs/plugins.md](docs/plugins.md) | Writing plugins: protocol, testing, examples in sh, Python, Bun and Sema |
+| [docs/ai.md](docs/ai.md) | The opencode integration, permissions, troubleshooting |
+| [docs/releasing.md](docs/releasing.md) | Signing, notarization, Homebrew releases |
 
 ## URL scheme
 
-`helgelauncher://show?q=…`, `://clipboard`, `://emoji`, `://snippets`, `://1password`, `://ai?q=…`
+Open the launcher from scripts, Shortcuts or other apps:
 
-## Data
-
-- `~/Library/Application Support/HelgeLauncher/history.json`: launch counts for ranking (seeded from Raycast's activity log)
-- `…/clipboard.json`, `…/clipboard-images/`: clipboard history
-- `…/ai/`: working directory of the opencode server (sessions deny every tool except webfetch/websearch)
-
-Pasting (snippets, emoji, clipboard) sends ⌘V and needs Accessibility permission. Without it, the launcher opens System Settings → Accessibility and pins a panel with its icon under the Settings window; drag the icon into the list. The panel closes when the permission is granted. It also opens from the menu-bar item (Grant Accessibility…) and on the first paste attempt without permission. Builds signed with the Developer ID keep the grant across rebuilds and updates.
-
-## Icon
-
-`assets/AppIcon.png` and the menu-bar glyph in `Resources/` are drawn by `tools/icon.swift`, in the same style as Helge Terminal: dark tile, thin rim, `#FCD001` glyph. The glyph is a magnifier drawn with the terminal's stroke weight; its square-cut handle matches the terminal's cursor bar.
+| URL | Opens |
+|---|---|
+| `helgelauncher://show` | The launcher (`?q=text` pre-fills the search) |
+| `helgelauncher://clipboard` | Clipboard history |
+| `helgelauncher://emoji` | Emoji search |
+| `helgelauncher://snippets` | Snippet search |
+| `helgelauncher://1password` | 1Password search |
+| `helgelauncher://ai?q=question` | AI chat, asking the question |
 
 ```sh
-swift tools/icon.swift magnifier assets/AppIcon.png 1024
-swift tools/icon.swift template Resources/MenuBarIcon@2x.png 44
-swift tools/icon.swift template Resources/MenuBarIcon.png 22
+open 'helgelauncher://ai?q=What%20is%20my%20IP%20used%20for'
 ```
+
+## Command line
+
+The app binary also runs without the UI, for scripting and testing:
+
+```sh
+HL=/Applications/Helge\ Launcher.app/Contents/MacOS/HelgeLauncher
+"$HL" --search "tab"                       # ranked results
+"$HL" --mode emoji --search "thumbs"       # modes: root, emoji, snippets, clipboard, onepassword
+"$HL" --plugin Units --search "10 km in mi"
+"$HL" --expand 'Week {date:ww}'
+"$HL" --ai "One sentence on what opencode is"
+```
+
+`HL_CONFIG_DIR=/path` uses another config directory.
+
+## Development
+
+```sh
+just            # list recipes
+just test       # test suite
+just install    # build and install a development copy in /Applications
+just release    # universal, signed, notarized ZIP in dist/
+```
+
+Swift 6 toolchain (Xcode 16 or later). Development builds are signed with the Developer ID when one is in the Keychain, so the Accessibility grant survives rebuilds.
+
+The icons are drawn by `tools/icon.swift` (`just icons`) in the same style as [Helge Terminal](https://github.com/HelgeSverre/terminal): dark tile, thin rim, a yellow magnifier whose square-cut handle matches the terminal's cursor bar.
 
 ## License
 
