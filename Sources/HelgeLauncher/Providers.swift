@@ -126,7 +126,7 @@ enum UserCommands {
     @MainActor static func run(_ c: CommandConfig) {
         if let o = c.open { _ = openURL(o) }
         if let r = c.run {
-            Task { _ = try? await Shell.run("/bin/zsh", ["-lc", r]) }
+            Shell.spawn(r)
         }
     }
 }
@@ -198,18 +198,37 @@ enum Snippets {
         return out
     }
 
+    struct Expanded {
+        let text: String
+        /// Read from 1Password: copied concealed and cleared after `clear_after`.
+        let isSecret: Bool
+    }
+
     /// Placeholders, then a whole-text op:// reference is read from 1Password.
-    /// nil when the reference could not be read (the reference itself is never pasted).
-    @MainActor static func expand(_ text: String) async -> String? {
-        var t = placeholders(text)
-        if t.hasPrefix("op://"), !t.contains("\n") {
-            do { t = try await OnePassword.shared.read(t) } catch {
-                Launcher.shared?.toast("1Password: \(error.localizedDescription)")
-                NSLog("Helge Launcher snippet: 1Password read failed: %@", error.localizedDescription)
-                return nil
-            }
+    /// nil when the reference could not be read; the reference itself is never returned.
+    @MainActor static func expand(_ text: String) async -> Expanded? {
+        let t = placeholders(text)
+        guard t.hasPrefix("op://"), !t.contains("\n") else { return Expanded(text: t, isSecret: false) }
+        do {
+            return Expanded(text: try await OnePassword.shared.read(t), isSecret: true)
+        } catch {
+            Launcher.shared?.toast("1Password: \(error.localizedDescription)")
+            NSLog("Helge Launcher snippet: 1Password read failed: %@", error.localizedDescription)
+            return nil
         }
-        return t
+    }
+
+    /// Pastes into `target` only if it is still frontmost and the launcher is closed; otherwise copies.
+    @MainActor static func deliver(_ e: Expanded, paste: Bool, target: NSRunningApplication?) {
+        let stillThere = target != nil && NSWorkspace.shared.frontmostApplication == target
+        if paste && stillThere && Launcher.shared?.panel?.isVisible != true {
+            Pasteboard.paste(e.text, concealed: e.isSecret)
+        } else {
+            Pasteboard.copy(e.text, concealed: e.isSecret)
+        }
+        if e.isSecret {
+            Pasteboard.clear(after: OnePassword.shared.config.clearAfter, ifStill: e.text)
+        }
     }
 
     static func items(_ cfg: [SnippetConfig]) -> [Item] {
@@ -221,12 +240,17 @@ enum Snippets {
                 actions: [
                     Action(title: "Paste") {
                         History.shared.record(id)
-                        Task { @MainActor in if let t = await expand(s.text) { Pasteboard.paste(t) } }
+                        let target = NSWorkspace.shared.frontmostApplication
+                        Task { @MainActor in
+                            if let e = await expand(s.text) { deliver(e, paste: true, target: target) }
+                        }
                         return false
                     },
                     Action(title: "Copy") {
                         History.shared.record(id)
-                        Task { @MainActor in if let t = await expand(s.text) { Pasteboard.copy(t) } }
+                        Task { @MainActor in
+                            if let e = await expand(s.text) { deliver(e, paste: false, target: nil) }
+                        }
                         return false
                     },
                 ],

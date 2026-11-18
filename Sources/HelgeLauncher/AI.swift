@@ -341,8 +341,9 @@ final class ResumeOnce<T>: @unchecked Sendable {
 }
 
 final class LockedBuffer: @unchecked Sendable {
-    private var data = Data()
+    private var storage = Data()
     private let lock = NSLock()
-    func append(_ d: Data) { lock.withLock { data.append(d) } }
-    var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
+    func append(_ d: Data) { lock.withLock { storage.append(d) } }
+    var data: Data { lock.withLock { storage } }
+    var text: String { String(decoding: data, as: UTF8.self) }
 }

@@ -196,8 +196,8 @@ func runCLI(_ args: [String]) async -> Int32 {
     OnePassword.shared.config = cfg.onepassword
 
     if let text = arg("--expand") {
-        guard let v = await Snippets.expand(text) else { print("error: could not expand"); return 1 }
-        print(v)
+        guard let e = await Snippets.expand(text) else { print("error: could not expand"); return 1 }
+        print(e.text)
         return 0
     }
 

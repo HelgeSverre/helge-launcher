@@ -32,7 +32,7 @@ final class ClipboardHistory {
 
     func stop() { timer?.invalidate(); timer = nil }
 
-    private func poll() {
+    func poll() {
         let pb = NSPasteboard.general
         guard pb.changeCount != lastChange else { return }
         lastChange = pb.changeCount

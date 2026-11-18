@@ -56,7 +56,7 @@ enum Plugins {
             if let o = a.open { _ = openURL(o) }
             if let c = a.copy { Pasteboard.copy(c) }
             if let p = a.paste { Pasteboard.paste(p) }
-            if let r = a.run { Task { _ = try? await Shell.run("/bin/zsh", ["-lc", r]) } }
+            if let r = a.run { Shell.spawn(r) }
             return false
         }
     }

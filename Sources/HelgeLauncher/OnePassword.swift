@@ -1,6 +1,7 @@
 import AppKit
 
-/// 1Password via the `op` CLI (desktop-app integration handles auth/biometrics).
+/// 1Password through the `op` CLI. The item list is cached for 5 minutes; concurrent refreshes share one `op` run.
+@MainActor
 final class OnePassword {
     static let shared = OnePassword()
     var config = OnePasswordConfig()
@@ -20,19 +21,25 @@ final class OnePassword {
     private var cachedAt = Date.distantPast
     private var accountUUID: String?
     private(set) var lastError: String?
-    private var loading = false
+    private var refreshing: Task<Void, Never>?
 
     private var baseArgs: [String] { config.account.map { ["--account", $0] } ?? [] }
 
-    /// Uses the 1Password desktop-app integration; a service-account token in the env would hide personal vaults.
+    /// Without `use_service_account`, `OP_SERVICE_ACCOUNT_TOKEN` is removed so `op` uses the desktop app.
     private func opRun(_ args: [String], timeout: TimeInterval = 30) async throws -> Data {
         try await Shell.run(config.op, args, unset: config.useServiceAccount ? [] : ["OP_SERVICE_ACCOUNT_TOKEN"], timeout: timeout)
     }
 
     func refresh(force: Bool = false) async {
-        if loading || (!force && Date().timeIntervalSince(cachedAt) < 300 && !cached.isEmpty) { return }
-        loading = true
-        defer { loading = false }
+        if let pending = refreshing { return await pending.value }
+        if !force && !cached.isEmpty && Date().timeIntervalSince(cachedAt) < 300 { return }
+        let task = Task { await load() }
+        refreshing = task
+        await task.value
+        refreshing = nil
+    }
+
+    private func load() async {
         do {
             let data = try await opRun(["item", "list", "--format", "json"] + baseArgs, timeout: 60)
             cached = try JSONDecoder().decode([OPItem].self, from: data)

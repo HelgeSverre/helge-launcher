@@ -169,42 +169,98 @@ func rank(_ items: [Item], query: String, limit: Int = 60) -> [Item] {
 // MARK: - Helpers
 
 enum Shell {
-    /// Runs a program and returns stdout. Throws with stderr on non-zero exit.
-    static func run(_ launchPath: String, _ args: [String], stdin: Data? = nil, env: [String: String] = [:], unset: [String] = [], cwd: URL? = nil, timeout: TimeInterval = 30) async throws -> Data {
-        try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global().async {
-                let p = Process()
-                p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-                p.arguments = [launchPath] + args
-                if let cwd { p.currentDirectoryURL = cwd }
-                var e = ProcessInfo.processInfo.environment
-                e["PATH"] = Shell.path
-                for (k, v) in env { e[k] = v }
-                for k in unset { e.removeValue(forKey: k) }
-                p.environment = e
-                let out = Pipe(), err = Pipe(), inp = Pipe()
-                p.standardOutput = out
-                p.standardError = err
-                p.standardInput = inp
-                do { try p.run() } catch { cont.resume(throwing: error); return }
-                if let stdin { inp.fileHandleForWriting.write(stdin) }
-                try? inp.fileHandleForWriting.close()
-                var timedOut = false
-                let killer = DispatchWorkItem { if p.isRunning { timedOut = true; p.terminate() } }
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
-                let data = out.fileHandleForReading.readDataToEndOfFile()
-                let errData = err.fileHandleForReading.readDataToEndOfFile()
-                p.waitUntilExit()
-                killer.cancel()
-                if p.terminationStatus == 0 {
-                    cont.resume(returning: data)
+    struct Failure: LocalizedError {
+        let message: String
+        var errorDescription: String? { message }
+    }
+
+    /// Runs `program` (looked up on `path`) and returns its stdout. Throws with stderr on a non-zero
+    /// exit, on timeout (after terminating the process) and on task cancellation (same).
+    /// Output that a backgrounded grandchild keeps open is not waited for beyond 0.2 s after exit.
+    static func run(
+        _ program: String,
+        _ args: [String],
+        stdin: Data? = nil,
+        env: [String: String] = [:],
+        unset: [String] = [],
+        cwd: URL? = nil,
+        timeout: TimeInterval = 30
+    ) async throws -> Data {
+        let p = makeProcess(program, args, env: env, unset: unset, cwd: cwd)
+        let out = Pipe(), err = Pipe(), inp = Pipe()
+        p.standardOutput = out
+        p.standardError = err
+        p.standardInput = inp
+        let stdoutData = LockedBuffer(), stderrData = LockedBuffer()
+        let streams = DispatchGroup()
+        for (pipe, buffer) in [(out, stdoutData), (err, stderrData)] {
+            streams.enter()
+            pipe.fileHandleForReading.readabilityHandler = { h in
+                let d = h.availableData
+                if d.isEmpty {
+                    h.readabilityHandler = nil
+                    streams.leave()
                 } else {
-                    var msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-                    if timedOut { msg = "\((launchPath as NSString).lastPathComponent) timed out after \(Int(timeout))s" }
-                    cont.resume(throwing: NSError(domain: launchPath, code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: msg.isEmpty ? "exit \(p.terminationStatus)" : msg]))
+                    buffer.append(d)
                 }
             }
         }
+        let name = (program as NSString).lastPathComponent
+
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Data, Error>) in
+                let once = ResumeOnce(cont)
+                p.terminationHandler = { proc in
+                    _ = streams.wait(timeout: .now() + 0.2)
+                    if proc.terminationStatus == 0 {
+                        once.resume(returning: stdoutData.data)
+                    } else {
+                        let msg = stderrData.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                        once.resume(throwing: Failure(message: msg.isEmpty ? "\(name): exit \(proc.terminationStatus)" : msg))
+                    }
+                }
+                do {
+                    try p.run()
+                } catch {
+                    once.resume(throwing: error)
+                    return
+                }
+                if let stdin { inp.fileHandleForWriting.write(stdin) }
+                try? inp.fileHandleForWriting.close()
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                    once.resume(throwing: Failure(message: "\(name) timed out after \(String(format: "%g", timeout))s"))
+                    if p.isRunning { p.terminate() }
+                }
+            }
+        } onCancel: {
+            if p.isRunning { p.terminate() }
+        }
+    }
+
+    /// Starts `zsh -lc command` without waiting for it or reading its output.
+    static func spawn(_ command: String) {
+        let p = makeProcess("/bin/zsh", ["-lc", command], env: [:], unset: [], cwd: nil)
+        p.standardInput = FileHandle.nullDevice
+        p.standardOutput = FileHandle.nullDevice
+        p.standardError = FileHandle.nullDevice
+        do {
+            try p.run()
+        } catch {
+            NSLog("Helge Launcher: could not run %@: %@", command, error.localizedDescription)
+        }
+    }
+
+    private static func makeProcess(_ program: String, _ args: [String], env: [String: String], unset: [String], cwd: URL?) -> Process {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = [program] + args
+        if let cwd { p.currentDirectoryURL = cwd }
+        var e = ProcessInfo.processInfo.environment
+        e["PATH"] = path
+        for (k, v) in env { e[k] = v }
+        for k in unset { e.removeValue(forKey: k) }
+        p.environment = e
+        return p
     }
 
     /// GUI apps get a minimal PATH, so ask the user's interactive zsh once (same binaries as the terminal).
@@ -245,8 +301,8 @@ enum Pasteboard {
     }
 
     /// Copies, then sends ⌘V to the frontmost app. Needs Accessibility permission.
-    @MainActor static func paste(_ s: String) {
-        copy(s)
+    @MainActor static func paste(_ s: String, concealed: Bool = false) {
+        copy(s, concealed: concealed)
         Launcher.shared?.hide()
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { sendCmdV() }
     }
