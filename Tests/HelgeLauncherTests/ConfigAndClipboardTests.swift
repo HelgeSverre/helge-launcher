@@ -95,17 +95,40 @@ extension PasteboardTests {
         #expect(!h.entries.contains { $0.id == entry.id })
     }
 
-    @Test func corruptHistoryKeepsItsImages() throws {
+    /// Snapshot of the test data directory's clipboard files and the system pasteboard, restored on exit.
+    final class ClipboardState {
         let fm = FileManager.default
         let json = Paths.supportDir.appendingPathComponent("clipboard.json")
-        let image = Paths.supportDir.appendingPathComponent("clipboard-images/keep-\(UUID().uuidString).png")
-        let aside = json.appendingPathExtension("corrupt")
-        let saved = try? Data(contentsOf: json)
-        defer {
-            try? fm.removeItem(at: image)
-            try? fm.removeItem(at: aside)
-            if let saved { try? saved.write(to: json) } else { try? fm.removeItem(at: json) }
+        let images = Paths.supportDir.appendingPathComponent("clipboard-images")
+        let backup = FileManager.default.temporaryDirectory.appendingPathComponent("clip-backup-\(UUID().uuidString)")
+        let pasteboard = NSPasteboard.general.string(forType: .string)
+
+        init() throws {
+            try fm.createDirectory(at: backup, withIntermediateDirectories: true)
+            if fm.fileExists(atPath: json.path) { try fm.copyItem(at: json, to: backup.appendingPathComponent("clipboard.json")) }
+            if fm.fileExists(atPath: images.path) { try fm.copyItem(at: images, to: backup.appendingPathComponent("images")) }
         }
+
+        func restore() {
+            for ext in ["", ".corrupt", ".moving"] { try? fm.removeItem(atPath: json.path + ext) }
+            try? fm.removeItem(at: images)
+            try? fm.moveItem(at: backup.appendingPathComponent("clipboard.json"), to: json)
+            if (try? fm.moveItem(at: backup.appendingPathComponent("images"), to: images)) == nil {
+                try? fm.createDirectory(at: images, withIntermediateDirectories: true)
+            }
+            try? fm.removeItem(at: backup)
+            NSPasteboard.general.clearContents()
+            if let pasteboard { NSPasteboard.general.setString(pasteboard, forType: .string) }
+        }
+    }
+
+    @Test func corruptHistoryKeepsItsImages() throws {
+        let state = try ClipboardState()
+        defer { state.restore() }
+        let fm = FileManager.default
+        let json = state.json
+        let image = state.images.appendingPathComponent("keep-\(UUID().uuidString).png")
+        let aside = json.appendingPathExtension("corrupt")
         try fm.createDirectory(at: image.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data("png".utf8).write(to: image)
         try Data("[{\"id\":".utf8).write(to: json)
@@ -126,6 +149,18 @@ extension PasteboardTests {
         try fm.removeItem(at: aside)
         ClipboardHistory().removeUnreferencedImages()
         #expect(!fm.fileExists(atPath: image.path))
+    }
+
+    @Test func interruptedSetAsideIsFinishedAndProtected() throws {
+        let state = try ClipboardState()
+        defer { state.restore() }
+        let image = state.images.appendingPathComponent("staged-\(UUID().uuidString).png")
+        try FileManager.default.createDirectory(at: state.images, withIntermediateDirectories: true)
+        try Data("png".utf8).write(to: image)
+        try Data("[{\"id\":".utf8).write(to: state.json.appendingPathExtension("moving"))
+        ClipboardHistory().removeUnreferencedImages()
+        #expect(FileManager.default.fileExists(atPath: image.path))
+        #expect(FileManager.default.fileExists(atPath: state.json.appendingPathExtension("corrupt").path))
     }
 
     @Test func zeroClearAfterNeverClears() async throws {

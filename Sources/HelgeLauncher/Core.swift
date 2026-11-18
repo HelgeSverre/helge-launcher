@@ -216,8 +216,6 @@ enum Shell {
                     _ = streams.wait(timeout: .now() + 0.2)
                     out.fileHandleForReading.readabilityHandler = nil
                     err.fileHandleForReading.readabilityHandler = nil
-                    try? out.fileHandleForReading.close()
-                    try? err.fileHandleForReading.close()
                     if proc.terminationStatus == 0 {
                         once.resume(returning: stdoutData.data)
                     } else {

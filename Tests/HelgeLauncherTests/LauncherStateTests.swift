@@ -77,6 +77,26 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         #expect(l.mode == .root && l.query == " u 10 km")
     }
 
+    @Test func busyAskFromAURLLandsInTheChat() async {
+        let l = Launcher(ai: FakeAI())
+        l.config.ai.enabled = true
+        l.askAI("first")
+        await settle()
+        l.back()
+        l.show()
+        l.askAI("second")
+        #expect(l.mode == .ai && l.query == "second")
+    }
+
+    @Test func openingTheChatKeepsADraft() {
+        let l = Launcher(ai: FakeAI())
+        l.config.ai.enabled = true
+        l.openAIChat()
+        l.query = "draft"
+        l.openAIChat()
+        #expect(l.query == "draft")
+    }
+
     @Test func aiChatRespectsEnabled() {
         let l = Launcher(ai: FakeAI())
         l.config.ai.enabled = false

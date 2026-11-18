@@ -25,10 +25,15 @@ final class ClipboardHistory {
     /// its images may be referenced there, so none are removed.
     private var loadedCleanly = true
     private var corruptURL: URL { url.appendingPathExtension("corrupt") }
+    private var stagingURL: URL { url.appendingPathExtension("moving") }
 
     init() {
         let fm = FileManager.default
         try? fm.createDirectory(at: imageDir, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: stagingURL.path) {
+            if !fm.fileExists(atPath: corruptURL.path) { try? fm.moveItem(at: stagingURL, to: corruptURL) }
+            loadedCleanly = false
+        }
         if fm.fileExists(atPath: url.path) {
             if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([Entry].self, from: d) {
                 entries = e
@@ -43,11 +48,10 @@ final class ClipboardHistory {
     private func setAside() {
         let fm = FileManager.default
         loadedCleanly = false
-        let staging = url.appendingPathExtension("moving")
-        try? fm.removeItem(at: staging)
-        guard (try? fm.moveItem(at: url, to: staging)) != nil else { return }
+        guard !fm.fileExists(atPath: stagingURL.path),
+              (try? fm.moveItem(at: url, to: stagingURL)) != nil else { return }
         try? fm.removeItem(at: corruptURL)
-        try? fm.moveItem(at: staging, to: corruptURL)
+        try? fm.moveItem(at: stagingURL, to: corruptURL)
     }
 
     func removeUnreferencedImages() {
