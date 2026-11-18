@@ -19,7 +19,7 @@ final class PermissionHelper {
     func requestIfNeeded() {
         guard !isTrusted else { return }
         if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
-            NSWorkspace.shared.open(u)
+            Effects.open(u)
         }
         if panel == nil { panel = makePanel() }
         sawSettings = false

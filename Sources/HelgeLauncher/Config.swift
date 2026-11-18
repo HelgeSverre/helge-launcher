@@ -166,6 +166,7 @@ struct PluginConfig: Decodable {
     }
 
     init(name: String, exec: [String], prefix: String? = nil, icon: String? = nil, env: [String: String] = [:]) {
+        precondition(!exec.isEmpty && !exec[0].isEmpty, "plugin \(name): exec is empty")
         self.name = name
         self.exec = exec
         self.prefix = prefix

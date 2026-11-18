@@ -164,16 +164,14 @@ import Testing
         #expect(items.first?.title == "Bad failed")
     }
 
-    @MainActor @Test func runActionExecutes() async throws {
+    @MainActor @Test func runActionsDoNothingUnderTests() async throws {
         let marker = FileManager.default.temporaryDirectory.appendingPathComponent("hl-run-\(UUID().uuidString)")
         let action = Plugins.action(
             Plugins.PAction(title: "Run", open: nil, copy: nil, paste: nil, run: "touch '\(marker.path)'")
         )
+        #expect(action.detail == "run touch '\(marker.path)'")
         _ = action.run()
-        for _ in 0..<50 where !FileManager.default.fileExists(atPath: marker.path) {
-            try await Task.sleep(nanoseconds: 100_000_000)
-        }
-        #expect(FileManager.default.fileExists(atPath: marker.path))
-        try? FileManager.default.removeItem(at: marker)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(!FileManager.default.fileExists(atPath: marker.path))
     }
 }

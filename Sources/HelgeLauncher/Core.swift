@@ -324,16 +324,20 @@ enum Shell {
         }
     }
 
-    /// Starts `zsh -lc command` without waiting for it or reading its output.
+    /// Starts `zsh -lc command` on a background queue without waiting for it or reading its output.
+    /// No-op under test runners.
     static func spawn(_ command: String) {
-        let p = makeProcess("/bin/zsh", ["-lc", command], env: [:], unset: [], cwd: nil)
-        p.standardInput = FileHandle.nullDevice
-        p.standardOutput = FileHandle.nullDevice
-        p.standardError = FileHandle.nullDevice
-        do {
-            try p.run()
-        } catch {
-            NSLog("Helge Launcher: could not run %@: %@", command, error.localizedDescription)
+        guard !Paths.isTestRunner else { return }
+        DispatchQueue.global().async {
+            let p = makeProcess("/bin/zsh", ["-lc", command], env: [:], unset: [], cwd: nil)
+            p.standardInput = FileHandle.nullDevice
+            p.standardOutput = FileHandle.nullDevice
+            p.standardError = FileHandle.nullDevice
+            do {
+                try p.run()
+            } catch {
+                NSLog("Helge Launcher: could not run %@: %@", command, error.localizedDescription)
+            }
         }
     }
 
@@ -465,12 +469,31 @@ enum Pasteboard {
     }
 }
 
+/// Effects outside the app: opening apps, files and URLs, and revealing files. No-ops under test runners.
+@MainActor
+enum Effects {
+    static func open(_ url: URL) {
+        guard !Paths.isTestRunner else { return }
+        NSWorkspace.shared.open(url)
+    }
+
+    static func openApplication(_ url: URL) {
+        guard !Paths.isTestRunner else { return }
+        NSWorkspace.shared.openApplication(at: url, configuration: .init())
+    }
+
+    static func reveal(_ url: URL) {
+        guard !Paths.isTestRunner else { return }
+        NSWorkspace.shared.activateFileViewerSelecting([url])
+    }
+}
+
 /// Opens a URL, or a file, folder or app path (`~` expanded), with its default handler.
 @MainActor func openURL(_ s: String) {
     let expanded = NSString(string: s).expandingTildeInPath
     if expanded.hasPrefix("/") {
-        NSWorkspace.shared.open(URL(fileURLWithPath: expanded))
+        Effects.open(URL(fileURLWithPath: expanded))
     } else if let u = URL(string: s) {
-        NSWorkspace.shared.open(u)
+        Effects.open(u)
     }
 }

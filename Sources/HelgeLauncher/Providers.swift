@@ -63,11 +63,11 @@ final class AppIndex {
                 accessory: "Application",
                 actions: [
                     Action(title: "Open") {
-                        NSWorkspace.shared.openApplication(at: url, configuration: .init())
+                        Effects.openApplication(url)
                         return .close
                     },
                     Action(title: "Show in Finder") {
-                        NSWorkspace.shared.activateFileViewerSelecting([url])
+                        Effects.reveal(url)
                         return .close
                     },
                 ],
@@ -107,7 +107,7 @@ enum CleanShot {
                     Action(title: "Run") {
                         // The panel must be off screen before the capture starts.
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
-                            NSWorkspace.shared.open(URL(string: "cleanshot://" + c.url)!)
+                            Effects.open(URL(string: "cleanshot://" + c.url)!)
                         }
                         return .close
                     }

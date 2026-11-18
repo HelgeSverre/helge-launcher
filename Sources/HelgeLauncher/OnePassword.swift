@@ -175,7 +175,7 @@ final class OnePassword {
             Action(title: "Open in 1Password") {
                 var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
                 if let a = self.accountUUID { url += "&a=\(a)" }
-                NSWorkspace.shared.open(URL(string: url)!)
+                Effects.open(URL(string: url)!)
                 return .close
             }
         )
