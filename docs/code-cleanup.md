@@ -82,7 +82,7 @@ Status refers to the current head unless a revision is named. "Verified" = fix r
 | A6 | be5177d | Verify 1 repairs |
 | A7 | 7cd7eab | Verify 2 repairs |
 | A8 | 869ccd0 | Verify 3 repairs |
-| A9 | (this commit) | Verify 4 repairs: clipboard set-aside redesign, busy ask keeps drafts, empty question, full pasteboard snapshot in tests |
+| A9 | 66b9118 | Verify 4 repairs: clipboard set-aside redesign, busy ask keeps drafts, empty question, full pasteboard snapshot in tests |
 
 ## Round log
 
