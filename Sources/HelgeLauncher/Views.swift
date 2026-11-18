@@ -120,7 +120,7 @@ struct LauncherView: View {
             header
             Rectangle().fill(Theme.border).frame(height: 1)
             ZStack(alignment: .bottomTrailing) {
-                if l.mode == .ai { ChatView() } else { results }
+                if l.mode == .ai { ChatView(conversation: l.conversation) } else { results }
                 if l.showActions, let it = l.current { ActionsMenu(item: it).padding(10) }
             }
             .frame(maxHeight: .infinity)
@@ -151,7 +151,7 @@ struct LauncherView: View {
     private var placeholder: String {
         switch l.mode {
         case .root: return "Search apps and commands…"
-        case .ai: return l.chat.isEmpty ? "Ask anything…" : "Follow up…"
+        case .ai: return l.conversation.turns.isEmpty ? "Ask anything…" : "Follow up…"
         default: return "Search \(l.mode.title)…"
         }
     }
@@ -326,14 +326,15 @@ struct ActionsMenu: View {
 
 struct ChatView: View {
     @EnvironmentObject var l: Launcher
+    @ObservedObject var conversation: Conversation
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    if l.chat.isEmpty {
+                    if conversation.turns.isEmpty {
                         Text(l.config.ai.model).font(Theme.mono(11)).foregroundStyle(Theme.muted)
                     }
-                    ForEach(l.chat) { t in
+                    ForEach(conversation.turns) { t in
                         VStack(alignment: .leading, spacing: 8) {
                             Text(markdown(t.question)).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
                             if !t.answer.isEmpty {
@@ -351,7 +352,7 @@ struct ChatView: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(18)
             }
-            .onChange(of: l.chat.last?.answer) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
+            .onChange(of: conversation.turns.last?.answer) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
         }
     }
 

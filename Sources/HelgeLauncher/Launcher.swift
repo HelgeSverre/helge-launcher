@@ -1,14 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct ChatTurn: Identifiable {
-    let id = UUID()
-    var question: String
-    var answer: String = ""
-    var status: String = ""
-    var done = false
-}
-
 /// Owns state for the panel: query, mode, results, AI chat.
 @MainActor
 final class Launcher: ObservableObject {
@@ -21,17 +13,19 @@ final class Launcher: ObservableObject {
     @Published var showActions = false
     @Published var actionIndex = 0
     @Published var toastText: String?
-    @Published var chat: [ChatTurn] = []
     @Published var configError: String?
     @Published var focusToken = 0
 
     var config = Config()
-    private var aiSession: String?
+    var conversation: Conversation
     private var pluginTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private(set) var panel: LauncherPanel?
 
-    init() { Launcher.shared = self }
+    init(ai: AIBackend? = nil) {
+        conversation = Conversation(backend: ai ?? OpenCode.shared)
+        Launcher.shared = self
+    }
 
     // MARK: Panel
 
@@ -236,51 +230,31 @@ final class Launcher: ObservableObject {
     // MARK: AI
 
     func askAI(_ q: String) {
+        guard config.ai.enabled else { toast("AI is disabled in the config"); return }
         mode = .ai
         query = ""
         items = []
-        send(q)
+        submit(q)
     }
 
     func newChat() {
-        if let s = aiSession { Task { await OpenCode.shared.interrupt(session: s) } }
-        aiSession = nil
-        chat = []
+        conversation.reset()
         query = ""
     }
 
     private func submitAI() {
         let q = query.trimmingCharacters(in: .whitespacesAndNewlines)
         if q.isEmpty {
-            if let last = chat.last?.answer, !last.isEmpty {
+            if let last = conversation.lastAnswer {
                 Pasteboard.copy(last)
                 toast("Answer copied")
             }
             return
         }
-        query = ""
-        send(q)
+        submit(q)
     }
 
-    private func send(_ q: String) {
-        chat.append(ChatTurn(question: q, status: "Thinking…"))
-        let idx = chat.count - 1
-        Task {
-            do {
-                if aiSession == nil { aiSession = try await OpenCode.shared.createSession() }
-                guard let sid = aiSession else { return }
-                try await OpenCode.shared.prompt(session: sid, text: q) { [weak self] ev in
-                    guard let self, self.chat.indices.contains(idx) else { return }
-                    switch ev {
-                    case .delta(let d): self.chat[idx].answer += d; self.chat[idx].status = ""
-                    case .tool(let t): self.chat[idx].status = "Using \(t)…"
-                    case .done: self.chat[idx].done = true; self.chat[idx].status = ""
-                    case .failed(let e): self.chat[idx].done = true; self.chat[idx].status = "Failed: \(e)"
-                    }
-                }
-            } catch {
-                if chat.indices.contains(idx) { chat[idx].status = "Error: \(error.localizedDescription)"; chat[idx].done = true }
-            }
-        }
+    private func submit(_ q: String) {
+        if conversation.send(q) { query = "" } else { toast("Still answering · ⌘N for a new chat") }
     }
 }

@@ -89,8 +89,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ClipboardHistory.shared.config = cfg.clipboard
         cfg.clipboard.enabled ? ClipboardHistory.shared.start() : ClipboardHistory.shared.stop()
         OnePassword.shared.config = cfg.onepassword
-        OpenCode.shared.config = cfg.ai
-        if cfg.ai.enabled { Task { _ = try? await OpenCode.shared.ensureStarted() } }
+        OpenCode.shared.apply(cfg.ai)
 
         var problems: [String] = err.map { [$0] } ?? []
         Hotkeys.shared.unregisterAll()
@@ -161,7 +160,10 @@ func renderLauncher(_ args: [String], to path: String) {
     case "clipboard": l.mode = .clipboard
     case "ai":
         l.mode = .ai
-        l.chat = [ChatTurn(question: "What does `open -a` do?", answer: "`open -a` launches the named application (for example `open -a Safari`) and can open files or URLs with it.", done: true)]
+        l.conversation = Conversation(backend: OpenCode.shared, turns: [ChatTurn(
+            question: "What does `open -a` do?",
+            answer: "`open -a` launches the named application (for example `open -a Safari`) and can open files or URLs with it.",
+            done: true)])
     default: l.mode = .root
     }
     l.query = arg("--search") ?? ""
@@ -194,7 +196,6 @@ func runCLI(_ args: [String]) async -> Int32 {
     let (cfg, err) = ConfigLoader.load()
     if let err { print("config error: \(err)") }
     OnePassword.shared.config = cfg.onepassword
-    OpenCode.shared.config = cfg.ai
 
     if let text = arg("--expand") {
         guard let v = await Snippets.expand(text) else { print("error: could not expand"); return 1 }
@@ -213,10 +214,13 @@ func runCLI(_ args: [String]) async -> Int32 {
     }
 
     if let q = arg("--ai") {
+        var ai = cfg.ai
+        ai.enabled = true
+        OpenCode.shared.apply(ai)
         do {
-            let sid = try await OpenCode.shared.createSession()
+            let session = try await OpenCode.shared.createSession()
             var finished = false
-            try await OpenCode.shared.prompt(session: sid, text: q) { ev in
+            try await OpenCode.shared.prompt(session, text: q) { ev in
                 switch ev {
                 case .delta(let d): FileHandle.standardOutput.write(Data(d.utf8))
                 case .tool(let t): FileHandle.standardError.write(Data("[tool \(t)]\n".utf8))

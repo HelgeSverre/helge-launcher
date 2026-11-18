@@ -1,23 +1,78 @@
 import Foundation
 
-/// Runs `opencode serve` as a child process and talks to its v2 HTTP API.
-final class OpenCode {
-    static let shared = OpenCode()
-    var config = AIConfig()
+enum AIEvent: Equatable {
+    case delta(String)
+    case tool(String)
+    case done
+    case failed(String)
 
-    private var process: Process?
-    private var baseURL: URL?
-    private let password = UUID().uuidString + UUID().uuidString
-    private var startTask: Task<URL, Error>?
-    private var handlers: [String: (Event) -> Void] = [:]
-    private let lock = NSLock()
-
-    enum Event {
-        case delta(String)
-        case tool(String)
-        case done
-        case failed(String)
+    var isTerminal: Bool {
+        switch self {
+        case .done, .failed: return true
+        case .delta, .tool: return false
+        }
     }
+}
+
+/// A conversation on one server instance. Invalid once that server stops.
+struct AISession: Equatable {
+    let id: String
+    let server: Int
+}
+
+enum AIError: LocalizedError, Equatable {
+    case disabled
+    case startFailed(String)
+    case sessionLost
+    case http(Int, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .disabled: return "AI is disabled in the config"
+        case .startFailed(let why): return "opencode serve did not start: \(why)"
+        case .sessionLost: return "the opencode server restarted"
+        case .http(let code, let body): return "opencode HTTP \(code): \(body)"
+        }
+    }
+}
+
+@MainActor
+protocol AIBackend: AnyObject {
+    func createSession() async throws -> AISession
+    /// `onEvent` receives this prompt's events until `.done` or `.failed`.
+    func prompt(_ session: AISession, text: String, onEvent: @escaping @MainActor (AIEvent) -> Void) async throws
+    func interrupt(_ session: AISession) async
+    /// Stops delivering events for the session.
+    func release(_ session: AISession)
+}
+
+/// `opencode serve --stdio` as a child process. The child reads our pipe as stdin and exits when it
+/// closes, so it never outlives this process. States: idle → starting → running → idle (stop or exit).
+@MainActor
+final class OpenCode: AIBackend {
+    static let shared = OpenCode()
+
+    private(set) var config = AIConfig()
+
+    private struct Server {
+        let id: Int
+        let process: Process
+        let stdin: FileHandle
+        let url: URL
+        var events: Task<Void, Never>?
+    }
+
+    private enum State {
+        case idle
+        case starting(id: Int, task: Task<Server, Error>)
+        case running(Server)
+    }
+
+    private var state = State.idle
+    private var nextServerID = 1
+    private var handlers: [String: @MainActor (AIEvent) -> Void] = [:]
+    private let password = UUID().uuidString + UUID().uuidString
+    var startTimeout: TimeInterval = 20
 
     private let workDir: URL = {
         let u = Paths.supportDir.appendingPathComponent("ai")
@@ -25,92 +80,144 @@ final class OpenCode {
         return u
     }()
 
-    /// Starts the server once; concurrent callers share the same start.
-    func ensureStarted() async throws -> URL {
-        if let u = baseURL, process?.isRunning == true { return u }
-        if let t = startTask { return try await t.value }
-        let t = Task { () throws -> URL in
-            let u = try await self.launch()
-            self.baseURL = u
-            self.subscribe(u)
-            return u
-        }
-        startTask = t
-        do { return try await t.value } catch { startTask = nil; throw error }
+    // MARK: Lifecycle
+
+    /// Stops the server when AI is disabled or the binary changed; prestarts it when enabled.
+    func apply(_ new: AIConfig) {
+        let restart = new.opencode != config.opencode || !new.enabled
+        config = new
+        if restart { stop() }
+        if new.enabled { Task { _ = try? await ensureStarted() } }
     }
 
-    private func launch() async throws -> URL {
-        let p = Process()
-        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        p.arguments = [NSString(string: config.opencode).expandingTildeInPath, "serve", "--hostname", "127.0.0.1", "--port", "0"]
-        p.currentDirectoryURL = workDir
-        var env = ProcessInfo.processInfo.environment
-        env["PATH"] = Shell.path
-        env["OPENCODE_SERVER_PASSWORD"] = password
-        p.environment = env
-        let out = Pipe()
-        p.standardOutput = out
-        p.standardError = FileHandle.nullDevice
-        try p.run()
-        process = p
-
-        return try await withCheckedThrowingContinuation { cont in
-            DispatchQueue.global().async {
-                var buf = ""
-                let deadline = Date().addingTimeInterval(20)
-                while Date() < deadline {
-                    let d = out.fileHandleForReading.availableData
-                    if d.isEmpty { break }
-                    buf += String(decoding: d, as: UTF8.self)
-                    if let r = buf.range(of: "http://127\\.0\\.0\\.1:[0-9]+", options: .regularExpression), let u = URL(string: String(buf[r])) {
-                        // Keep draining stdout so the child never blocks on a full pipe.
-                        DispatchQueue.global().async { while !out.fileHandleForReading.availableData.isEmpty {} }
-                        cont.resume(returning: u)
-                        return
-                    }
+    /// Returns the running server's id, starting it if needed. Concurrent callers share one start.
+    func ensureStarted() async throws -> Int {
+        guard config.enabled else { throw AIError.disabled }
+        switch state {
+        case .running(let s):
+            return s.id
+        case .starting(_, let task):
+            return try await task.value.id
+        case .idle:
+            let id = nextServerID
+            nextServerID += 1
+            let binary = NSString(string: config.opencode).expandingTildeInPath
+            let task = Task { try await self.launch(id: id, binary: binary) }
+            state = .starting(id: id, task: task)
+            do {
+                var server = try await task.value
+                guard case .starting(let current, _) = state, current == id else {
+                    terminate(server)
+                    throw AIError.startFailed("stopped while starting")
                 }
-                cont.resume(throwing: NSError(domain: "opencode", code: 1, userInfo: [NSLocalizedDescriptionKey: "opencode serve did not start: \(buf.prefix(300))"]))
+                server.events = subscribe(server)
+                state = .running(server)
+                return id
+            } catch {
+                if case .starting(let current, _) = state, current == id { state = .idle }
+                throw error
             }
         }
     }
 
     func stop() {
-        process?.terminate()
-        process = nil
-        baseURL = nil
-        startTask = nil
+        switch state {
+        case .running(let s): terminate(s)
+        case .starting(_, let task): task.cancel()
+        case .idle: break
+        }
+        state = .idle
+        failAll("the opencode server stopped")
     }
 
-    private func request(_ path: String, method: String = "GET", body: Any? = nil) throws -> URLRequest {
-        guard let base = baseURL else { throw NSError(domain: "opencode", code: 2) }
-        var r = URLRequest(url: base.appendingPathComponent(path))
-        r.httpMethod = method
-        let auth = Data("opencode:\(password)".utf8).base64EncodedString()
-        r.setValue("Basic \(auth)", forHTTPHeaderField: "Authorization")
-        if let body {
-            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            r.httpBody = try JSONSerialization.data(withJSONObject: body)
+    /// Closing stdin asks the server to exit; SIGTERM follows after 3 s if it hasn't.
+    private func terminate(_ s: Server) {
+        s.events?.cancel()
+        try? s.stdin.close()
+        let process = s.process
+        DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
+            if process.isRunning { process.terminate() }
         }
-        return r
     }
 
-    private func call(_ path: String, method: String = "GET", body: Any? = nil) async throws -> [String: Any] {
-        let req = try request(path, method: method, body: body)
-        if ProcessInfo.processInfo.environment["HL_DEBUG"] != nil {
-            FileHandle.standardError.write(Data("→ \(method) \(req.url!.absoluteString) \(String(decoding: req.httpBody ?? Data(), as: UTF8.self))\n".utf8))
-        }
-        let (d, resp) = try await URLSession.shared.data(for: req)
-        let obj = (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
-        guard let http = resp as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
-            throw NSError(domain: "opencode", code: (resp as? HTTPURLResponse)?.statusCode ?? 0,
-                          userInfo: [NSLocalizedDescriptionKey: String(decoding: d, as: UTF8.self).prefix(300).description])
-        }
-        return obj
+    private func exited(serverID: Int) {
+        guard case .running(let s) = state, s.id == serverID else { return }
+        s.events?.cancel()
+        state = .idle
+        failAll("the opencode server exited")
     }
 
-    /// Text-only answers plus web lookups; everything else (shell, edits) is denied.
-    func createSession() async throws -> String {
-        _ = try await ensureStarted()
+    private func failAll(_ message: String) {
+        let pending = handlers
+        handlers = [:]
+        for h in pending.values { h(.failed(message)) }
+    }
+
+    private var runningServer: Server? {
+        if case .running(let s) = state { return s }
+        return nil
+    }
+
+    private func launch(id: Int, binary: String) async throws -> Server {
+        let p = Process()
+        p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        p.arguments = [binary, "serve", "--stdio", "--hostname", "127.0.0.1", "--port", "0"]
+        p.currentDirectoryURL = workDir
+        var env = ProcessInfo.processInfo.environment
+        env["PATH"] = Shell.path
+        env["OPENCODE_SERVER_PASSWORD"] = password
+        p.environment = env
+        let stdin = Pipe(), stdout = Pipe()
+        p.standardInput = stdin
+        p.standardOutput = stdout
+        p.standardError = FileHandle.nullDevice
+        p.terminationHandler = { [weak self] _ in
+            Task { @MainActor in self?.exited(serverID: id) }
+        }
+        do { try p.run() } catch { throw AIError.startFailed(error.localizedDescription) }
+
+        do {
+            let url = try await Self.readURL(from: stdout.fileHandleForReading, timeout: startTimeout)
+            return Server(id: id, process: p, stdin: stdin.fileHandleForWriting, url: url)
+        } catch {
+            try? stdin.fileHandleForWriting.close()
+            if p.isRunning { p.terminate() }
+            throw error
+        }
+    }
+
+    /// Reads stdout until the `{"url": …}` line, then keeps draining it so the child never blocks on a full pipe.
+    private nonisolated static func readURL(from handle: FileHandle, timeout: TimeInterval) async throws -> URL {
+        try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
+            let once = ResumeOnce(cont)
+            let buffer = LockedBuffer()
+            handle.readabilityHandler = { h in
+                let data = h.availableData
+                if data.isEmpty {
+                    h.readabilityHandler = nil
+                    once.resume(throwing: AIError.startFailed("exited: \(buffer.text.prefix(300))"))
+                    return
+                }
+                guard !once.isDone else { return }
+                buffer.append(data)
+                for line in buffer.text.split(separator: "\n") {
+                    if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
+                       let s = obj["url"] as? String, let url = URL(string: s) {
+                        once.resume(returning: url)
+                        return
+                    }
+                }
+            }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                once.resume(throwing: AIError.startFailed("no URL after \(Int(timeout))s: \(buffer.text.prefix(300))"))
+            }
+        }
+    }
+
+    // MARK: Sessions
+
+    func createSession() async throws -> AISession {
+        let serverID = try await ensureStarted()
         let body: [String: Any] = [
             "title": "Helge Launcher",
             "model": ["providerID": config.providerID, "id": config.modelID],
@@ -120,44 +227,81 @@ final class OpenCode {
                 ["action": "websearch", "resource": "*", "effect": "allow"],
             ],
         ]
-        let r = try await call("api/session", method: "POST", body: body)
+        let r = try await call("api/session", method: "POST", body: body, server: serverID)
         guard let id = (r["data"] as? [String: Any])?["id"] as? String else {
-            throw NSError(domain: "opencode", code: 3, userInfo: [NSLocalizedDescriptionKey: "no session id"])
+            throw AIError.http(200, "no session id")
         }
-        return id
+        return AISession(id: id, server: serverID)
     }
 
-    func prompt(session: String, text: String, onEvent: @escaping (Event) -> Void) async throws {
-        lock.withLock { handlers[session] = onEvent }
+    func prompt(_ session: AISession, text: String, onEvent: @escaping @MainActor (AIEvent) -> Void) async throws {
+        guard runningServer?.id == session.server else { throw AIError.sessionLost }
+        handlers[session.id] = onEvent
         var full = text
         if let sys = config.system, !sys.isEmpty { full = sys + "\n\n" + text }
-        _ = try await call("api/session/\(session)/prompt", method: "POST", body: ["text": full])
+        do {
+            _ = try await call("api/session/\(session.id)/prompt", method: "POST", body: ["text": full], server: session.server)
+        } catch {
+            handlers[session.id] = nil
+            throw error
+        }
     }
 
-    func interrupt(session: String) async {
-        _ = try? await call("api/session/\(session)/interrupt", method: "POST", body: [String: Any]())
+    func interrupt(_ session: AISession) async {
+        _ = try? await call("api/session/\(session.id)/interrupt", method: "POST", body: [String: Any](), server: session.server)
     }
 
-    /// One long-lived SSE connection; events are routed to the session's handler.
-    private func subscribe(_ base: URL) {
-        Task.detached { [weak self] in
-            while let self, self.baseURL != nil {
+    func release(_ session: AISession) {
+        handlers[session.id] = nil
+    }
+
+    // MARK: HTTP
+
+    private func request(_ path: String, server: Server, method: String = "GET", body: Any? = nil) throws -> URLRequest {
+        var r = URLRequest(url: server.url.appendingPathComponent(path))
+        r.httpMethod = method
+        r.setValue("Basic \(Data("opencode:\(password)".utf8).base64EncodedString())", forHTTPHeaderField: "Authorization")
+        if let body {
+            r.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            r.httpBody = try JSONSerialization.data(withJSONObject: body)
+        }
+        return r
+    }
+
+    private func call(_ path: String, method: String, body: Any?, server serverID: Int) async throws -> [String: Any] {
+        guard let server = runningServer, server.id == serverID else { throw AIError.sessionLost }
+        let req = try request(path, server: server, method: method, body: body)
+        if ProcessInfo.processInfo.environment["HL_DEBUG"] != nil {
+            FileHandle.standardError.write(Data("→ \(method) \(req.url!.absoluteString)\n".utf8))
+        }
+        let (d, resp) = try await URLSession.shared.data(for: req)
+        let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
+        guard (200..<300).contains(code) else {
+            throw AIError.http(code, String(String(decoding: d, as: UTF8.self).prefix(300)))
+        }
+        return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
+    }
+
+    /// One event stream per server; reconnects after a 1 s pause until cancelled.
+    private func subscribe(_ server: Server) -> Task<Void, Never> {
+        let types = ["session.text.delta", "session.tool.called", "session.execution.succeeded",
+                     "session.execution.failed", "session.execution.interrupted"]
+        var comps = URLComponents(url: server.url.appendingPathComponent("api/event"), resolvingAgainstBaseURL: false)!
+        comps.queryItems = types.map { URLQueryItem(name: "types", value: $0) }
+        guard var req = try? request("api/event", server: server) else { return Task {} }
+        req.url = comps.url
+        req.timeoutInterval = .infinity
+        return Task { [weak self] in
+            while !Task.isCancelled {
                 do {
-                    let types = ["session.text.delta", "session.tool.called", "session.execution.succeeded",
-                                 "session.execution.failed", "session.execution.interrupted"]
-                    var comps = URLComponents(url: base.appendingPathComponent("api/event"), resolvingAgainstBaseURL: false)!
-                    comps.queryItems = types.map { URLQueryItem(name: "types", value: $0) }
-                    var r = try self.request("api/event")
-                    r.url = comps.url
-                    r.timeoutInterval = .infinity
-                    let (bytes, _) = try await URLSession.shared.bytes(for: r)
-                    for try await line in bytes.lines {
-                        guard line.hasPrefix("data:") else { continue }
-                        self.dispatch(Data(line.dropFirst(5).utf8))
+                    let (bytes, resp) = try await URLSession.shared.bytes(for: req)
+                    if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                        for try await line in bytes.lines where line.hasPrefix("data:") {
+                            self?.dispatch(Data(line.dropFirst(5).utf8))
+                        }
                     }
-                } catch {
-                    try? await Task.sleep(nanoseconds: 1_000_000_000)
-                }
+                } catch {}
+                try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
     }
@@ -167,14 +311,38 @@ final class OpenCode {
               let type = obj["type"] as? String,
               let data = obj["data"] as? [String: Any],
               let sid = data["sessionID"] as? String,
-              let h = lock.withLock({ handlers[sid] }) else { return }
-        let ev: Event
+              let handler = handlers[sid] else { return }
+        let event: AIEvent
         switch type {
-        case "session.text.delta": ev = .delta(data["delta"] as? String ?? "")
-        case "session.tool.called": ev = .tool((data["tool"] as? String) ?? (data["name"] as? String) ?? "tool")
-        case "session.execution.succeeded", "session.execution.interrupted": ev = .done
-        default: ev = .failed((data["error"] as? [String: Any])?["message"] as? String ?? "\(data["error"] ?? "failed")")
+        case "session.text.delta": event = .delta(data["delta"] as? String ?? "")
+        case "session.tool.called": event = .tool((data["tool"] as? String) ?? (data["name"] as? String) ?? "tool")
+        case "session.execution.succeeded", "session.execution.interrupted": event = .done
+        default: event = .failed((data["error"] as? [String: Any])?["message"] as? String ?? "\(data["error"] ?? "failed")")
         }
-        DispatchQueue.main.async { h(ev) }
+        if event.isTerminal { handlers[sid] = nil }
+        handler(event)
     }
+}
+
+/// Resumes a continuation at most once, from any thread.
+final class ResumeOnce<T>: @unchecked Sendable {
+    private var cont: CheckedContinuation<T, Error>?
+    private let lock = NSLock()
+    init(_ c: CheckedContinuation<T, Error>) { cont = c }
+
+    var isDone: Bool { lock.withLock { cont == nil } }
+
+    func resume(returning v: T) { take()?.resume(returning: v) }
+    func resume(throwing e: Error) { take()?.resume(throwing: e) }
+
+    private func take() -> CheckedContinuation<T, Error>? {
+        lock.withLock { defer { cont = nil }; return cont }
+    }
+}
+
+final class LockedBuffer: @unchecked Sendable {
+    private var data = Data()
+    private let lock = NSLock()
+    func append(_ d: Data) { lock.withLock { data.append(d) } }
+    var text: String { lock.withLock { String(decoding: data, as: UTF8.self) } }
 }
