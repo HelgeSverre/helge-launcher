@@ -64,6 +64,29 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         #expect(l.mode == .root && l.query == "second")
     }
 
+    @Test func busyAskFromRootDoesNotRewriteTheQuery() async {
+        let ai = FakeAI()
+        let l = Launcher(ai: ai)
+        l.config.ai.enabled = true
+        l.config.plugin = [PluginConfig(name: "Units", exec: "/usr/bin/true", prefix: "u")]
+        l.askAI("first")
+        await settle()
+        l.mode = .root
+        l.query = " u 10 km"
+        l.tab()
+        #expect(l.mode == .root && l.query == " u 10 km")
+    }
+
+    @Test func aiChatRespectsEnabled() {
+        let l = Launcher(ai: FakeAI())
+        l.config.ai.enabled = false
+        l.openAIChat()
+        #expect(l.mode == .root)
+        l.config.ai.enabled = true
+        l.openAIChat()
+        #expect(l.mode == .ai)
+    }
+
     @Test func tabWithTheActionsMenuOpenClosesIt() {
         let l = Launcher(ai: FakeAI())
         l.config.ai.enabled = true

@@ -112,6 +112,8 @@ extension PasteboardTests {
         let history = ClipboardHistory()
         history.poll()
         let before = history.entries.count
+        let clearAfter = OnePassword.shared.config.clearAfter
+        defer { OnePassword.shared.config.clearAfter = clearAfter }
         OnePassword.shared.config.clearAfter = 1
 
         Snippets.deliver(.init(text: "s3cret-\(UUID().uuidString)", isSecret: true), paste: false, target: nil)

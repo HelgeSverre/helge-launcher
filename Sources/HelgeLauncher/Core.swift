@@ -239,9 +239,9 @@ enum Shell {
                 if let stdin { inp.fileHandleForWriting.write(stdin) }
                 try? inp.fileHandleForWriting.close()
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
-                    guard !once.isDone else { return }
+                    guard let p, !once.isDone else { return }
                     once.resume(throwing: Failure(message: "\(name) timed out after \(String(format: "%g", timeout))s"))
-                    if let p, p.isRunning { p.terminate() }
+                    if p.isRunning { p.terminate() }
                 }
             }
         } onCancel: {

@@ -21,20 +21,33 @@ final class ClipboardHistory {
     private let imageDir = Paths.supportDir.appendingPathComponent("clipboard-images")
     var config = ClipboardConfig()
 
-    /// False when `clipboard.json` existed but couldn't be decoded; its images are then kept.
+    /// False when the history couldn't be read, or a set-aside `clipboard.json.corrupt` still exists:
+    /// its images may be referenced there, so none are removed.
     private var loadedCleanly = true
+    private var corruptURL: URL { url.appendingPathExtension("corrupt") }
 
     init() {
-        try? FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
-        guard let d = try? Data(contentsOf: url) else { return }
-        if let e = try? JSONDecoder().decode([Entry].self, from: d) {
-            entries = e
-        } else {
-            loadedCleanly = false
-            let aside = url.appendingPathExtension("corrupt")
-            try? FileManager.default.removeItem(at: aside)
-            try? FileManager.default.moveItem(at: url, to: aside)
+        let fm = FileManager.default
+        try? fm.createDirectory(at: imageDir, withIntermediateDirectories: true)
+        if fm.fileExists(atPath: url.path) {
+            if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([Entry].self, from: d) {
+                entries = e
+            } else {
+                setAside()
+            }
         }
+        if fm.fileExists(atPath: corruptURL.path) { loadedCleanly = false }
+    }
+
+    /// Moves an unreadable history to `clipboard.json.corrupt`, replacing an older one only once the move worked.
+    private func setAside() {
+        let fm = FileManager.default
+        loadedCleanly = false
+        let staging = url.appendingPathExtension("moving")
+        try? fm.removeItem(at: staging)
+        guard (try? fm.moveItem(at: url, to: staging)) != nil else { return }
+        try? fm.removeItem(at: corruptURL)
+        try? fm.moveItem(at: staging, to: corruptURL)
     }
 
     func removeUnreferencedImages() {

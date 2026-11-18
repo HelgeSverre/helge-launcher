@@ -114,6 +114,18 @@ extension PasteboardTests {
         #expect(fm.fileExists(atPath: image.path))
         #expect(fm.fileExists(atPath: aside.path))
         #expect(h.entries.isEmpty)
+
+        // Next launch: a fresh history exists, the set-aside file still does.
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("after-\(UUID().uuidString)", forType: .string)
+        h.poll()
+        ClipboardHistory().removeUnreferencedImages()
+        #expect(fm.fileExists(atPath: image.path))
+
+        // Once the set-aside file is gone, cleanup resumes.
+        try fm.removeItem(at: aside)
+        ClipboardHistory().removeUnreferencedImages()
+        #expect(!fm.fileExists(atPath: image.path))
     }
 
     @Test func zeroClearAfterNeverClears() async throws {
