@@ -72,13 +72,50 @@ run = "sudo -n dscacheutil -flushcache"   # or open = "<URL, app or file path>";
 
 [[snippet]]
 name = "date"
-text = "Today is {date}"      # {date} {time} {clipboard}; a bare op://vault/item/field is read from 1Password
+text = "Today is {date}"      # placeholders and 1Password references: see Snippets below
 
 [[plugin]]
 name = "Example"
 exec = "plugins/example.sh"   # relative to ~/.config/hl
 prefix = "ex"
 ```
+
+## Snippets
+
+Snippets appear in the main search and under **Search Snippets**. ↵ pastes into the app you were in, ⌘↵ copies.
+
+```toml
+[[snippet]]
+name = "standup"
+keyword = "su"                # optional extra search term
+text = """
+Yesterday: {clipboard}
+Today ({date}):
+"""
+```
+
+Placeholders are replaced each time the snippet is used:
+
+| Placeholder | Becomes | Example |
+|---|---|---|
+| `{date}` | today, `yyyy-MM-dd` | `2026-11-18` |
+| `{time}` | now, `HH:mm` (24 h) | `14:05` |
+| `{clipboard}` | the current clipboard text | |
+
+Text without placeholders is pasted as written. Use TOML `"""…"""` for multi-line text.
+
+**1Password references.** When the whole `text` is a single `op://vault/item/field` reference, the value is read from 1Password with `op read` at the moment you paste, so the secret is never stored in the config:
+
+```toml
+[[snippet]]
+name = "OpenAI key"
+text = "op://Personal/OpenAI/credential"
+```
+
+- Copy a reference from 1Password with **Copy Secret Reference** on a field, or write it as vault / item / field name.
+- The list shows the reference, never the value.
+- It works only when the reference is the entire text (one line); `op://` inside a longer text is pasted literally.
+- If `op` fails (locked, approval declined), nothing is pasted.
 
 ## Plugins
 
