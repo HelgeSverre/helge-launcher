@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     var keyMonitor: Any?
 
     func applicationDidFinishLaunching(_ n: Notification) {
+        Task { _ = await Shell.resolvedPath() }
         panel = LauncherPanel(launcher: launcher)
         launcher.attach(panel)
         setupStatusItem()

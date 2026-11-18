@@ -91,7 +91,7 @@ import Testing
         exec = ["sema", "--no-llm", "plugins/units.sema", "--"]
         env = { NOTES_DIR = "~/Notes" }
         """
-        let c = try TOMLDecoderShim.decode(toml)
+        let c = try ConfigLoader.parse(text: toml)
         #expect(c.hotkey == "alt+space")
         #expect(c.ai.providerID == "opencode-go" && c.ai.modelID == "deepseek-v4.1-flash")
         #expect(c.snippet.first?.keyword == "k")
@@ -106,8 +106,8 @@ import Testing
 @Suite struct PluginPrefix {
     @MainActor @Test func prefixJumpsIntoPlugin() {
         let l = Launcher()
-        l.config.plugin = [PluginConfig(name: "Calc", exec: "/usr/bin/true", prefix: "="),
-                           PluginConfig(name: "Processes", exec: "/usr/bin/true", prefix: "ps")]
+        l.config.plugin = [PluginConfig(name: "Calc", exec: ["/usr/bin/true"], prefix: "="),
+                           PluginConfig(name: "Processes", exec: ["/usr/bin/true"], prefix: "ps")]
         l.query = "= 2+2"
         #expect(l.mode == .plugin("Calc"))
         #expect(l.query == "2+2")
@@ -132,13 +132,13 @@ import Testing
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: script.path)
         defer { try? FileManager.default.removeItem(at: script) }
 
-        let p = PluginConfig(name: "Echo", exec: script.path, env: ["GREETING": "hei", "WHERE": "~/x"])
+        let p = PluginConfig(name: "Echo", exec: [script.path], env: ["GREETING": "hei", "WHERE": "~/x"])
         let items = await Plugins.query(p, "a b")
         #expect(items.first?.title == "a b|a b|hei|\(NSHomeDirectory())/x", "\(items.first?.subtitle ?? "")")
     }
 
     @Test func badOutputBecomesAnErrorItem() async {
-        let p = PluginConfig(name: "Bad", exec: "/bin/echo")   // prints the query, not JSON
+        let p = PluginConfig(name: "Bad", exec: ["/bin/echo"])   // prints the query, not JSON
         let items = await Plugins.query(p, "not json")
         #expect(items.first?.title == "Bad failed")
     }

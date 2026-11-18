@@ -68,7 +68,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         let ai = FakeAI()
         let l = Launcher(ai: ai)
         l.config.ai.enabled = true
-        l.config.plugin = [PluginConfig(name: "Units", exec: "/usr/bin/true", prefix: "u")]
+        l.config.plugin = [PluginConfig(name: "Units", exec: ["/usr/bin/true"], prefix: "u")]
         l.askAI("first")
         await settle()
         l.mode = .root
@@ -165,7 +165,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
     @Test func enteringAPluginRecordsItsListId() {
         let l = Launcher(ai: FakeAI())
         let name = "P\(UUID().uuidString.prefix(6))"
-        l.config.plugin = [PluginConfig(name: name, exec: "/usr/bin/true", prefix: "zz")]
+        l.config.plugin = [PluginConfig(name: name, exec: ["/usr/bin/true"], prefix: "zz")]
         l.query = "zz x"
         #expect(l.mode == .plugin(name))
         #expect(History.shared.boost(Mode.plugin(name).itemID) > 0)
@@ -183,7 +183,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
 
     @Test func leavingThePluginDropsItsPendingResults() async throws {
         let l = Launcher(ai: FakeAI())
-        l.config.plugin = [PluginConfig(name: "Slow", exec: try slowPlugin())]
+        l.config.plugin = [PluginConfig(name: "Slow", exec: [try slowPlugin()])]
         l.enter(.plugin("Slow"))
         try await Task.sleep(nanoseconds: 200_000_000)   // past the debounce: the process is running
         l.back()
@@ -197,7 +197,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
 
     @Test func resultsArriveWhileStillInThePlugin() async throws {
         let l = Launcher(ai: FakeAI())
-        l.config.plugin = [PluginConfig(name: "Slow", exec: try slowPlugin())]
+        l.config.plugin = [PluginConfig(name: "Slow", exec: [try slowPlugin()])]
         l.enter(.plugin("Slow"))
         for _ in 0..<100 where l.items.isEmpty { try await Task.sleep(nanoseconds: 50_000_000) }
         #expect(l.items.map(\.title) == ["STALE"])

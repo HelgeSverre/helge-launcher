@@ -228,13 +228,12 @@ enum Snippets {
     /// Pastes into `target` only if it is still frontmost and the launcher hasn't been shown since
     /// `showCount` was taken; otherwise copies.
     @MainActor static func deliver(_ e: Expanded, paste: Bool, target: NSRunningApplication?, showCount: Int? = nil) {
-        if paste && canPaste(into: target, showCount: showCount) {
-            Pasteboard.paste(e.text, concealed: e.isSecret)
-        } else {
-            Pasteboard.copy(e.text, concealed: e.isSecret)
-        }
-        if e.isSecret {
-            Pasteboard.clear(after: OnePassword.shared.config.clearAfter, ifStill: e.text)
+        let clearAfter = OnePassword.shared.config.clearAfter
+        switch (paste && canPaste(into: target, showCount: showCount), e.isSecret) {
+        case (true, true): Pasteboard.pasteSecret(e.text, clearAfter: clearAfter)
+        case (true, false): Pasteboard.paste(e.text)
+        case (false, true): Pasteboard.copySecret(e.text, clearAfter: clearAfter)
+        case (false, false): Pasteboard.copy(e.text)
         }
     }
 

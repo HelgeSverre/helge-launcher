@@ -17,7 +17,7 @@ import Testing
         #expect(loaded.error == nil && loaded.config?.snippet.isEmpty == true)
         #expect(loaded.warnings == ["include extra.toml not found"])
         #expect(loaded.stamps[d.appendingPathComponent("extra.toml").path] == .distantPast)
-        #expect(loaded.files.map(\.lastPathComponent) == ["config.toml", "extra.toml"])
+        #expect(loaded.stamps.keys.map { ($0 as NSString).lastPathComponent }.sorted() == ["config.toml", "extra.toml"])
 
         try #"[[snippet]]\#nname = "a"\#ntext = "b""#.write(to: d.appendingPathComponent("extra.toml"), atomically: true, encoding: .utf8)
         let fixed = ConfigLoader.load(from: d)
@@ -28,7 +28,7 @@ import Testing
         let d = try dir(["config.toml": #"include = ["extra.toml"]"#, "extra.toml": "[[snippet]\n"])
         let loaded = ConfigLoader.load(from: d)
         #expect(loaded.error?.contains("extra.toml") == true)
-        #expect(loaded.files.count == 2)
+        #expect(loaded.stamps.count == 2)
     }
 
     @Test func missingConfigIsCreatedWithDefaults() throws {
@@ -68,7 +68,7 @@ extension PasteboardTests {
         #expect(h.entries.count == entriesBefore + 1)
 
         let entry = try #require(h.entries.first)
-        #expect(entry.kind == "image" && newFiles.contains(entry.text))
+        #expect(entry.kind == .image && newFiles.contains(entry.text))
         h.delete(entry.id)
         #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(entry.text).path))
     }
@@ -184,10 +184,20 @@ extension PasteboardTests {
     }
 
     @Test func zeroClearAfterNeverClears() async throws {
-        Pasteboard.copy("stay")
-        Pasteboard.clear(after: 0, ifStill: "stay")
+        Pasteboard.copySecret("stay", clearAfter: 0)
         try await Task.sleep(nanoseconds: 200_000_000)
         #expect(Pasteboard.board.string(forType: .string) == "stay")
+    }
+
+    @Test func unknownKindsRoundTrip() throws {
+        let json = #"[{"id":"1","kind":"future","text":"x","date":1,"pinned":false}]"#
+        let entries = try JSONDecoder().decode([ClipboardHistory.Entry].self, from: Data(json.utf8))
+        #expect(entries.first?.kind.raw == "future")
+        let again = String(decoding: try JSONEncoder().encode(entries), as: UTF8.self)
+        #expect(again.contains(#""kind":"future""#))
+        #expect(ClipboardHistory.Kind.classify("https://x.y") == .link)
+        #expect(ClipboardHistory.Kind.classify("#a1b2c3") == .color)
+        #expect(ClipboardHistory.Kind.classify("https://x y") == .text)
     }
 
     @Test func zeroMaxItemsStillKeepsTheNewestEntry() {

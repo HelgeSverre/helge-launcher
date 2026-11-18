@@ -7,32 +7,86 @@ final class OnePassword {
     var config = OnePasswordConfig()
 
     struct OPItem: Decodable {
-        struct Vault: Decodable { let id: String; let name: String }
-        struct URLEntry: Decodable { let href: String; let primary: Bool? }
+        struct Vault: Decodable {
+            let id: String
+            let name: String
+        }
+
+        struct URLEntry: Decodable {
+            let href: String
+            let primary: Bool?
+        }
+
         let id: String
         let title: String
-        let category: String
+        let category: Category
         let vault: Vault
-        let additional_information: String?
+        let additionalInformation: String?
         let urls: [URLEntry]?
+
+        enum CodingKeys: String, CodingKey {
+            case id, title, category, vault, urls
+            case additionalInformation = "additional_information"
+        }
+
+        var website: String? { urls?.first(where: { $0.primary == true })?.href ?? urls?.first?.href }
     }
 
-    private(set) var cached: [OPItem] = []
+    /// `op` item categories; unknown ones keep their raw name.
+    struct Category: Decodable, Equatable {
+        let raw: String
+
+        init(from decoder: Decoder) throws { raw = try decoder.singleValueContainer().decode(String.self) }
+
+        static let login = "LOGIN", password = "PASSWORD", apiCredential = "API_CREDENTIAL"
+
+        /// Field label and action name of the item's secret, if it has one.
+        var secret: (field: String, label: String)? {
+            switch raw {
+            case Self.login, Self.password: return ("password", "Password")
+            case Self.apiCredential: return ("credential", "Credential")
+            default: return nil
+            }
+        }
+
+        var hasUsernameAndOTP: Bool { raw == Self.login }
+
+        var symbol: String {
+            switch raw {
+            case Self.login: return "key"
+            case Self.password: return "lock"
+            case Self.apiCredential: return "chevron.left.forwardslash.chevron.right"
+            case "CREDIT_CARD": return "creditcard"
+            case "SECURE_NOTE": return "note.text"
+            case "SSH_KEY": return "terminal"
+            default: return "doc"
+            }
+        }
+
+        var displayName: String { raw.replacingOccurrences(of: "_", with: " ").capitalized }
+    }
+
+    private var cached: [OPItem] = []
     private var cachedAt = Date.distantPast
     private var accountUUID: String?
-    private(set) var lastError: String?
+    private var lastError: String?
     private var refreshing: Task<Void, Never>?
 
     private var baseArgs: [String] { config.account.map { ["--account", $0] } ?? [] }
 
     /// Without `use_service_account`, `OP_SERVICE_ACCOUNT_TOKEN` is removed so `op` uses the desktop app.
     private func opRun(_ args: [String], timeout: TimeInterval = 30) async throws -> Data {
-        try await Shell.run(config.op, args, unset: config.useServiceAccount ? [] : ["OP_SERVICE_ACCOUNT_TOKEN"], timeout: timeout)
+        try await Shell.run(
+            config.op,
+            args,
+            unset: config.useServiceAccount ? [] : ["OP_SERVICE_ACCOUNT_TOKEN"],
+            timeout: timeout
+        )
     }
 
-    func refresh(force: Bool = false) async {
+    func refresh() async {
         if let pending = refreshing { return await pending.value }
-        if !force && !cached.isEmpty && Date().timeIntervalSince(cachedAt) < 300 { return }
+        if !cached.isEmpty && Date().timeIntervalSince(cachedAt) < 300 { return }
         let task = Task { await load() }
         refreshing = task
         await task.value
@@ -70,15 +124,18 @@ final class OnePassword {
         return String(decoding: d, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    @MainActor private func copySecret(_ label: String, _ get: @escaping () async throws -> String) -> Action {
+    private func copySecret(_ label: String, _ get: @escaping () async throws -> String) -> Action {
         Action(title: "Copy \(label)") {
             Task { @MainActor in
                 do {
                     let v = try await get()
-                    guard !v.isEmpty else { Launcher.shared?.toast("No \(label.lowercased()) on this item"); return }
-                    Pasteboard.copy(v, concealed: true)
-                    Pasteboard.clear(after: self.config.clearAfter, ifStill: v)
-                    Launcher.shared?.toast(self.config.clearAfter > 0 ? "\(label) copied, clears in \(self.config.clearAfter)s" : "\(label) copied")
+                    guard !v.isEmpty else {
+                        Launcher.shared?.toast("No \(label.lowercased()) on this item")
+                        return
+                    }
+                    let clearAfter = self.config.clearAfter
+                    Pasteboard.copySecret(v, clearAfter: clearAfter)
+                    Launcher.shared?.toast(clearAfter > 0 ? "\(label) copied, clears in \(clearAfter)s" : "\(label) copied")
                 } catch {
                     Launcher.shared?.toast("1Password: \(error.localizedDescription)")
                 }
@@ -87,53 +144,52 @@ final class OnePassword {
         }
     }
 
-    @MainActor var items: [Item] {
+    var items: [Item] {
         if cached.isEmpty, let e = lastError {
             return [Item(id: "op:error", title: "1Password unavailable", subtitle: e, icon: .symbol("exclamationmark.triangle"))]
         }
-        return cached.map { it in
-            let id = "op:" + it.id
-            var actions: [Action] = []
-            let record = { History.shared.record(id) }
-            if it.category == "LOGIN" || it.category == "PASSWORD" || it.category == "API_CREDENTIAL" {
-                actions.append(copySecret(it.category == "API_CREDENTIAL" ? "Credential" : "Password") {
-                    record()
-                    return try await self.field(it.id, it.category == "API_CREDENTIAL" ? "credential" : "password")
-                })
-            }
-            if it.category == "LOGIN" {
-                actions.append(copySecret("Username") { record(); return try await self.field(it.id, "username") })
-                actions.append(copySecret("One-Time Password") { record(); return try await self.otp(it.id) })
-            }
-            actions.append(Action(title: "Open in 1Password") {
-                record()
-                var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
-                if let a = self.accountUUID { url += "&a=\(a)" }
-                NSWorkspace.shared.open(URL(string: url)!)
-                return false
-            })
-            if let href = it.urls?.first(where: { $0.primary == true })?.href ?? it.urls?.first?.href {
-                actions.append(Action(title: "Open Website") { _ = openURL(href); return false })
-            }
-            return Item(
-                id: id, title: it.title,
-                subtitle: [it.additional_information, it.vault.name].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · "),
-                icon: .symbol(symbol(it.category)),
-                keywords: (it.urls ?? []).map(\.href) + [it.additional_information ?? ""],
-                accessory: it.category.replacingOccurrences(of: "_", with: " ").capitalized,
-                actions: actions)
-        }
+        return cached.map(item)
     }
 
-    private func symbol(_ category: String) -> String {
-        switch category {
-        case "LOGIN": return "key"
-        case "PASSWORD": return "lock"
-        case "API_CREDENTIAL": return "chevron.left.forwardslash.chevron.right"
-        case "CREDIT_CARD": return "creditcard"
-        case "SECURE_NOTE": return "note.text"
-        case "SSH_KEY": return "terminal"
-        default: return "doc"
+    private func item(_ it: OPItem) -> Item {
+        let id = "op:" + it.id
+        let record = { History.shared.record(id) }
+        var actions: [Action] = []
+        if let secret = it.category.secret {
+            actions.append(copySecret(secret.label) {
+                record()
+                return try await self.field(it.id, secret.field)
+            })
         }
+        if it.category.hasUsernameAndOTP {
+            actions.append(copySecret("Username") {
+                record()
+                return try await self.field(it.id, "username")
+            })
+            actions.append(copySecret("One-Time Password") {
+                record()
+                return try await self.otp(it.id)
+            })
+        }
+        actions.append(Action(title: "Open in 1Password") {
+            record()
+            var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
+            if let a = self.accountUUID { url += "&a=\(a)" }
+            NSWorkspace.shared.open(URL(string: url)!)
+            return false
+        })
+        if let href = it.website {
+            actions.append(Action(title: "Open Website") { _ = openURL(href); return false })
+        }
+        let details = [it.additionalInformation, it.vault.name].compactMap { $0 }.filter { !$0.isEmpty }
+        return Item(
+            id: id,
+            title: it.title,
+            subtitle: details.joined(separator: " · "),
+            icon: .symbol(it.category.symbol),
+            keywords: (it.urls ?? []).map(\.href) + [it.additionalInformation ?? ""],
+            accessory: it.category.displayName,
+            actions: actions
+        )
     }
 }
