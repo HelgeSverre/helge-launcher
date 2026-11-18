@@ -161,7 +161,8 @@ enum Emoji {
 // MARK: - Snippets
 
 enum Snippets {
-    @MainActor static func expand(_ text: String) async -> String {
+    /// nil when an op:// reference could not be read (the reference itself is never pasted).
+    @MainActor static func expand(_ text: String) async -> String? {
         var t = text
         let df = DateFormatter()
         df.dateFormat = "yyyy-MM-dd"
@@ -170,7 +171,12 @@ enum Snippets {
         t = t.replacingOccurrences(of: "{time}", with: df.string(from: Date()))
         t = t.replacingOccurrences(of: "{clipboard}", with: NSPasteboard.general.string(forType: .string) ?? "")
         // A snippet that is exactly an op:// reference is read from 1Password at use time.
-        if t.hasPrefix("op://"), !t.contains("\n"), let v = try? await OnePassword.shared.read(t) { t = v }
+        if t.hasPrefix("op://"), !t.contains("\n") {
+            do { t = try await OnePassword.shared.read(t) } catch {
+                Launcher.shared?.toast("1Password: \(error.localizedDescription)")
+                return nil
+            }
+        }
         return t
     }
 
@@ -183,12 +189,12 @@ enum Snippets {
                 actions: [
                     Action(title: "Paste") {
                         History.shared.record(id)
-                        Task { @MainActor in Pasteboard.paste(await expand(s.text)) }
+                        Task { @MainActor in if let t = await expand(s.text) { Pasteboard.paste(t) } }
                         return false
                     },
                     Action(title: "Copy") {
                         History.shared.record(id)
-                        Task { @MainActor in Pasteboard.copy(await expand(s.text)) }
+                        Task { @MainActor in if let t = await expand(s.text) { Pasteboard.copy(t) } }
                         return false
                     },
                 ],
