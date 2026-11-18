@@ -16,7 +16,7 @@ final class ClipboardHistory {
 
     private(set) var entries: [Entry] = []
     private var timer: Timer?
-    private var lastChange = NSPasteboard.general.changeCount
+    private var lastChange = Pasteboard.board.changeCount
     private let url = Paths.supportDir.appendingPathComponent("clipboard.json")
     private let imageDir = Paths.supportDir.appendingPathComponent("clipboard-images")
     var config = ClipboardConfig()
@@ -73,7 +73,7 @@ final class ClipboardHistory {
     func stop() { timer?.invalidate(); timer = nil }
 
     func poll() {
-        let pb = NSPasteboard.general
+        let pb = Pasteboard.board
         guard pb.changeCount != lastChange else { return }
         lastChange = pb.changeCount
         let types = pb.types ?? []
@@ -159,7 +159,7 @@ final class ClipboardHistory {
                 return false
             }
         }
-        let pb = NSPasteboard.general
+        let pb = Pasteboard.board
         pb.clearContents()
         switch e.kind {
         case "file": pb.writeObjects([URL(fileURLWithPath: e.text) as NSURL])

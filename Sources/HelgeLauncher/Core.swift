@@ -302,8 +302,13 @@ enum Shell {
 }
 
 enum Pasteboard {
+    /// The system pasteboard; a private named pasteboard under test runners.
+    static let board: NSPasteboard = Paths.isTestRunner
+        ? NSPasteboard(name: NSPasteboard.Name("HelgeLauncherTests-\(getpid())"))
+        : .general
+
     static func copy(_ s: String, concealed: Bool = false) {
-        let pb = NSPasteboard.general
+        let pb = Pasteboard.board
         pb.clearContents()
         pb.setString(s, forType: .string)
         if concealed {
@@ -336,10 +341,10 @@ enum Pasteboard {
     /// Clears the pasteboard after `seconds` if it still holds `value`. 0 or less: never.
     static func clear(after seconds: Int, ifStill value: String) {
         guard seconds > 0 else { return }
-        let change = NSPasteboard.general.changeCount
+        let change = Pasteboard.board.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(seconds)) {
-            if NSPasteboard.general.changeCount == change, NSPasteboard.general.string(forType: .string) == value {
-                NSPasteboard.general.clearContents()
+            if Pasteboard.board.changeCount == change, Pasteboard.board.string(forType: .string) == value {
+                Pasteboard.board.clearContents()
             }
         }
     }

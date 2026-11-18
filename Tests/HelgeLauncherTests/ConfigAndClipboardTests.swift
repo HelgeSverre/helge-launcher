@@ -41,7 +41,7 @@ import Testing
     }
 }
 
-/// Every test that writes the system pasteboard runs in here, one at a time.
+/// Tests that share the process's test pasteboard and clipboard files run in here, one at a time.
 @Suite(.serialized) @MainActor struct PasteboardTests {}
 
 extension PasteboardTests {
@@ -51,13 +51,11 @@ extension PasteboardTests {
     }
 
     func copyImage(_ image: NSImage) {
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.writeObjects([image])
+        Pasteboard.board.clearContents()
+        Pasteboard.board.writeObjects([image])
     }
 
     @Test func sameImageIsOneEntryAndDeleteRemovesTheFile() throws {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         let h = ClipboardHistory()
         let dir = Paths.supportDir.appendingPathComponent("clipboard-images")
         let filesBefore = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
@@ -76,27 +74,24 @@ extension PasteboardTests {
     }
 
     @Test func restoringAMissingImageDropsItAndKeepsTheClipboard() throws {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         let h = ClipboardHistory()
         copyImage(png(.blue)); h.poll()
         let entry = try #require(h.entries.first)
         try FileManager.default.removeItem(at: Paths.supportDir.appendingPathComponent("clipboard-images").appendingPathComponent(entry.text))
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("keep me", forType: .string)
+        Pasteboard.board.clearContents()
+        Pasteboard.board.setString("keep me", forType: .string)
         #expect(h.restore(entry) == false)
-        #expect(NSPasteboard.general.string(forType: .string) == "keep me")
+        #expect(Pasteboard.board.string(forType: .string) == "keep me")
         #expect(!h.entries.contains { $0.id == entry.id })
     }
 
-    /// Snapshot of the test data directory's clipboard files and the system pasteboard, restored on exit.
+    /// Snapshot of the test data directory's clipboard files, restored on exit.
     @MainActor
     final class ClipboardState {
         let fm = FileManager.default
         let json = Paths.supportDir.appendingPathComponent("clipboard.json")
         let images = Paths.supportDir.appendingPathComponent("clipboard-images")
         let backup = FileManager.default.temporaryDirectory.appendingPathComponent("clip-backup-\(UUID().uuidString)")
-        let pasteboard = PasteboardSnapshot()
 
         init() throws {
             try fm.createDirectory(at: backup, withIntermediateDirectories: true)
@@ -115,7 +110,6 @@ extension PasteboardTests {
                 try? fm.createDirectory(at: images, withIntermediateDirectories: true)
             }
             try? fm.removeItem(at: backup)
-            pasteboard.restore()
         }
 
         var setAsideFiles: [String] {
@@ -138,8 +132,8 @@ extension PasteboardTests {
         #expect(state.setAsideFiles.count == 1)
         #expect(h.entries.isEmpty)
 
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("after-\(UUID().uuidString)", forType: .string)
+        Pasteboard.board.clearContents()
+        Pasteboard.board.setString("after-\(UUID().uuidString)", forType: .string)
         h.poll()
         ClipboardHistory().removeUnreferencedImages()
         #expect(fm.fileExists(atPath: image.path))
@@ -183,28 +177,24 @@ extension PasteboardTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir)
         let h = ClipboardHistory()
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("new-\(UUID().uuidString)", forType: .string)
+        Pasteboard.board.clearContents()
+        Pasteboard.board.setString("new-\(UUID().uuidString)", forType: .string)
         h.poll()
         #expect(try Data(contentsOf: state.json) == corrupt)
     }
 
     @Test func zeroClearAfterNeverClears() async throws {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         Pasteboard.copy("stay")
         Pasteboard.clear(after: 0, ifStill: "stay")
         try await Task.sleep(nanoseconds: 200_000_000)
-        #expect(NSPasteboard.general.string(forType: .string) == "stay")
+        #expect(Pasteboard.board.string(forType: .string) == "stay")
     }
 
     @Test func zeroMaxItemsStillKeepsTheNewestEntry() {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         let h = ClipboardHistory()
         h.config.maxItems = 0
-        NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString("newest-\(UUID().uuidString)", forType: .string)
+        Pasteboard.board.clearContents()
+        Pasteboard.board.setString("newest-\(UUID().uuidString)", forType: .string)
         h.poll()
         #expect(h.entries.first?.text.hasPrefix("newest-") == true)
     }

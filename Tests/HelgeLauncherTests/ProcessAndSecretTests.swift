@@ -104,8 +104,6 @@ func executable(_ body: String) throws -> String {
 extension PasteboardTests {
 @Suite @MainActor struct SnippetSecretTests {
     @Test func secretsAreConcealedSkippedByHistoryAndCleared() async throws {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         let history = ClipboardHistory()
         history.poll()
         let before = history.entries.count
@@ -114,13 +112,13 @@ extension PasteboardTests {
         OnePassword.shared.config.clearAfter = 1
 
         Snippets.deliver(.init(text: "s3cret-\(UUID().uuidString)", isSecret: true), paste: false, target: nil)
-        let types = NSPasteboard.general.types ?? []
+        let types = Pasteboard.board.types ?? []
         #expect(types.contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")))
         history.poll()
         #expect(history.entries.count == before)
 
         try await Task.sleep(nanoseconds: 1_300_000_000)
-        #expect(NSPasteboard.general.string(forType: .string) == nil)
+        #expect(Pasteboard.board.string(forType: .string) == nil)
     }
 
     @Test func pasteOnlyIntoTheSameAppWithoutAReopen() throws {
@@ -134,11 +132,9 @@ extension PasteboardTests {
     }
 
     @Test func plainSnippetsAreOrdinaryCopies() {
-        let snapshot = PasteboardSnapshot()
-        defer { snapshot.restore() }
         Snippets.deliver(.init(text: "plain", isSecret: false), paste: false, target: nil)
-        #expect(!(NSPasteboard.general.types ?? []).contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")))
-        #expect(NSPasteboard.general.string(forType: .string) == "plain")
+        #expect(!(Pasteboard.board.types ?? []).contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")))
+        #expect(Pasteboard.board.string(forType: .string) == "plain")
     }
 }
 }

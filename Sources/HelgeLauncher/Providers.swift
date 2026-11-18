@@ -162,7 +162,7 @@ enum Emoji {
 
 enum Snippets {
     /// Replaces `{name}` and `{date:FORMAT}` placeholders. Unknown placeholders are left as written.
-    static func placeholders(_ text: String, now: Date = Date(), clipboard: () -> String = { NSPasteboard.general.string(forType: .string) ?? "" }) -> String {
+    static func placeholders(_ text: String, now: Date = Date(), clipboard: () -> String = { Pasteboard.board.string(forType: .string) ?? "" }) -> String {
         guard text.contains("{") else { return text }
         func fmt(_ pattern: String) -> String {
             let df = DateFormatter()

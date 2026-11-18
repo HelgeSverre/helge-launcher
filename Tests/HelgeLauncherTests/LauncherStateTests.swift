@@ -199,7 +199,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         let l = Launcher(ai: FakeAI())
         l.config.plugin = [PluginConfig(name: "Slow", exec: try slowPlugin())]
         l.enter(.plugin("Slow"))
-        try await Task.sleep(nanoseconds: 900_000_000)
+        for _ in 0..<100 where l.items.isEmpty { try await Task.sleep(nanoseconds: 50_000_000) }
         #expect(l.items.map(\.title) == ["STALE"])
     }
 }
