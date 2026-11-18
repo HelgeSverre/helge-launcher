@@ -134,7 +134,7 @@ import Testing
 
         let p = PluginConfig(name: "Echo", exec: script.path, env: ["GREETING": "hei", "WHERE": "~/x"])
         let items = await Plugins.query(p, "a b")
-        #expect(items.first?.title == "a b|a b|hei|\(NSHomeDirectory())/x")
+        #expect(items.first?.title == "a b|a b|hei|\(NSHomeDirectory())/x", "\(items.first?.subtitle ?? "")")
     }
 
     @Test func badOutputBecomesAnErrorItem() async {

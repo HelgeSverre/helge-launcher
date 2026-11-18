@@ -32,6 +32,8 @@ enum Plugins {
         do {
             // A lone path may use ~; everything runs from the config directory so relative paths work.
             let program = NSString(string: p.exec[0]).expandingTildeInPath
+            // A missing working directory makes the launch itself fail.
+            try? FileManager.default.createDirectory(at: Paths.configDir, withIntermediateDirectories: true)
             let data = try await Shell.run(program, Array(p.exec.dropFirst()) + [q],
                                            env: p.env.mapValues { NSString(string: $0).expandingTildeInPath }
                                                .merging(["HL_QUERY": q, "HL_CONFIG_DIR": Paths.configDir.path]) { _, new in new },
