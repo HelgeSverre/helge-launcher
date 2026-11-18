@@ -67,6 +67,14 @@ func executable(_ body: String) throws -> String {
         #expect(kill(pid, 0) != 0)
     }
 
+    @Test func finishedRunsReleaseTheirFileDescriptors() async throws {
+        func openFDs() -> Int { (try? FileManager.default.contentsOfDirectory(atPath: "/dev/fd").count) ?? 0 }
+        let before = openFDs()
+        for _ in 0..<100 { _ = try await Shell.run("/usr/bin/true", []) }
+        try await Task.sleep(nanoseconds: 500_000_000)
+        #expect(openFDs() - before < 50)    // a leak holds 2 per run (200)
+    }
+
     @Test func nonZeroExitReportsStderr() async throws {
         await #expect(throws: Shell.Failure.self) { _ = try await Shell.run("/bin/sh", ["-c", "echo nope >&2; exit 3"]) }
     }
@@ -114,6 +122,16 @@ extension PasteboardTests {
 
         try await Task.sleep(nanoseconds: 1_300_000_000)
         #expect(NSPasteboard.general.string(forType: .string) == nil)
+    }
+
+    @Test func pasteOnlyIntoTheSameAppWithoutAReopen() throws {
+        let front = try #require(NSWorkspace.shared.frontmostApplication)
+        let l = Launcher(ai: FakeAI())
+        let shown = l.showCount
+        #expect(Snippets.canPaste(into: front, showCount: shown, launcher: l))
+        #expect(!Snippets.canPaste(into: nil, showCount: shown, launcher: l))
+        l.show()
+        #expect(!Snippets.canPaste(into: front, showCount: shown, launcher: l))
     }
 
     @Test func plainSnippetsAreOrdinaryCopies() {

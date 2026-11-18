@@ -21,13 +21,24 @@ final class ClipboardHistory {
     private let imageDir = Paths.supportDir.appendingPathComponent("clipboard-images")
     var config = ClipboardConfig()
 
+    /// False when `clipboard.json` existed but couldn't be decoded; its images are then kept.
+    private var loadedCleanly = true
+
     init() {
         try? FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
-        if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([Entry].self, from: d) { entries = e }
-        removeUnreferencedImages()
+        guard let d = try? Data(contentsOf: url) else { return }
+        if let e = try? JSONDecoder().decode([Entry].self, from: d) {
+            entries = e
+        } else {
+            loadedCleanly = false
+            let aside = url.appendingPathExtension("corrupt")
+            try? FileManager.default.removeItem(at: aside)
+            try? FileManager.default.moveItem(at: url, to: aside)
+        }
     }
 
-    private func removeUnreferencedImages() {
+    func removeUnreferencedImages() {
+        guard loadedCleanly else { return }
         let referenced = Set(entries.filter { $0.kind == "image" }.map(\.text))
         for name in (try? FileManager.default.contentsOfDirectory(atPath: imageDir.path)) ?? [] where !referenced.contains(name) {
             try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(name))
@@ -36,6 +47,7 @@ final class ClipboardHistory {
 
     func start() {
         guard timer == nil else { return }
+        removeUnreferencedImages()
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
     }
 

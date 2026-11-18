@@ -218,12 +218,17 @@ enum Snippets {
         }
     }
 
+    /// True when `target` is still frontmost and the launcher hasn't been shown since `showCount`.
+    @MainActor static func canPaste(into target: NSRunningApplication?, showCount: Int?, launcher: Launcher? = nil) -> Bool {
+        guard let target, NSWorkspace.shared.frontmostApplication == target else { return false }
+        guard let launcher = launcher ?? Launcher.shared else { return true }
+        return launcher.showCount == showCount && launcher.panel?.isVisible != true
+    }
+
     /// Pastes into `target` only if it is still frontmost and the launcher hasn't been shown since
     /// `showCount` was taken; otherwise copies.
     @MainActor static func deliver(_ e: Expanded, paste: Bool, target: NSRunningApplication?, showCount: Int? = nil) {
-        let stillThere = target != nil && NSWorkspace.shared.frontmostApplication == target
-        let notReopened = Launcher.shared.map { $0.showCount == showCount && $0.panel?.isVisible != true } ?? true
-        if paste && stillThere && notReopened {
+        if paste && canPaste(into: target, showCount: showCount) {
             Pasteboard.paste(e.text, concealed: e.isSecret)
         } else {
             Pasteboard.copy(e.text, concealed: e.isSecret)

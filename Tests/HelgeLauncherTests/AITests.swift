@@ -191,6 +191,17 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         oc.stop()
     }
 
+    @Test func stopDuringStartKillsTheChild() async throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("start-\(UUID().uuidString)").path
+        let oc = try server(#"echo $$ > "# + pidFile + #"; exec sleep 5"#)
+        Task { _ = try? await oc.ensureStarted() }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: pidFile) { try await Task.sleep(nanoseconds: 20_000_000) }
+        let pid = try #require(Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        oc.stop()
+        try await Task.sleep(nanoseconds: 500_000_000)
+        #expect(kill(pid, 0) != 0)
+    }
+
     @Test func stopDuringStartFailsEveryWaiter() async throws {
         let oc = try server(#"sleep 0.3; echo '{"url":"http://127.0.0.1:9"}'; cat > /dev/null"#)
         async let a = Result(catching: { try await oc.ensureStarted() })

@@ -234,6 +234,14 @@ enum ConfigLoader {
         var files: [URL] { stamps.keys.sorted().map { URL(fileURLWithPath: $0) } }
     }
 
+    static let defaultSnippets = """
+    # Snippets: see docs/snippets.md.
+    # [[snippet]]
+    # name = "email"
+    # text = "you@example.com"
+
+    """
+
     /// Loads `config.toml` (created with defaults if missing) and its `include`d files, whose
     /// `[[command]]`, `[[snippet]]` and `[[plugin]]` blocks are appended. A missing include counts as empty.
     static func load(from dir: URL = Paths.configDir) -> Loaded {
@@ -242,6 +250,10 @@ enum ConfigLoader {
         try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
         if !fm.fileExists(atPath: main.path) {
             try? defaultConfig.write(to: main, atomically: true, encoding: .utf8)
+            let snippets = dir.appendingPathComponent("snippets.toml")
+            if !fm.fileExists(atPath: snippets.path) {
+                try? defaultSnippets.write(to: snippets, atomically: true, encoding: .utf8)
+            }
         }
         var result = Loaded()
         func read(_ url: URL) throws -> Config {

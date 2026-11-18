@@ -72,7 +72,8 @@ final class OpenCode: AIBackend {
     private var nextServerID = 1
     private struct Handler {
         let deliver: @MainActor (AIEvent) -> Void
-        let since: Date
+        /// When the server accepted the prompt; `.distantFuture` until then.
+        var accepted: Date = .distantFuture
     }
 
     private var handlers: [String: Handler] = [:]
@@ -256,11 +257,12 @@ final class OpenCode: AIBackend {
 
     func prompt(_ session: AISession, text: String, onEvent: @escaping @MainActor (AIEvent) -> Void) async throws {
         guard runningServer?.id == session.server else { throw AIError.sessionLost }
-        handlers[session.id] = Handler(deliver: onEvent, since: Date())
+        handlers[session.id] = Handler(deliver: onEvent)
         var full = text
         if let sys = config.system, !sys.isEmpty { full = sys + "\n\n" + text }
         do {
             _ = try await call("api/session/\(session.id)/prompt", method: "POST", body: ["text": full], server: session.server)
+            handlers[session.id]?.accepted = Date()
         } catch {
             handlers[session.id] = nil
             throw error
@@ -302,20 +304,21 @@ final class OpenCode: AIBackend {
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
     }
 
-    /// Prompts whose session is no longer active finished while the event stream was down.
-    /// Prompts younger than 2 s are skipped: their execution may not have started yet.
+    /// Prompts whose session is no longer active finished while the event stream was down. Only
+    /// prompts the server accepted more than 2 s ago count; younger ones may not be running yet.
     private func finishInactiveSessions(_ server: Server) async {
         guard !handlers.isEmpty,
               let r = try? await call("api/session/active", method: "GET", body: nil, server: server.id),
               let active = r["data"] as? [String: Any] else { return }
         let cutoff = Date().addingTimeInterval(-2)
-        for (sid, h) in handlers where active[sid] == nil && h.since < cutoff {
+        for (sid, h) in handlers where active[sid] == nil && h.accepted < cutoff {
             handlers[sid] = nil
             h.deliver(.done)
         }
     }
 
-    /// One event stream per server; reconnects after a 1 s pause until cancelled.
+    /// One event stream per server; reconnects after a 1 s pause until cancelled. Every connection
+    /// first finishes prompts whose final event may have been missed.
     private func subscribe(_ server: Server) -> Task<Void, Never> {
         let types = ["session.text.delta", "session.tool.called", "session.execution.succeeded",
                      "session.execution.failed", "session.execution.interrupted"]
@@ -325,13 +328,11 @@ final class OpenCode: AIBackend {
         req.url = comps.url
         req.timeoutInterval = .infinity
         return Task { [weak self] in
-            var reconnecting = false
             while !Task.isCancelled {
                 do {
                     let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                     if (resp as? HTTPURLResponse)?.statusCode == 200 {
-                        if reconnecting { await self?.finishInactiveSessions(server) }
-                        reconnecting = true
+                        await self?.finishInactiveSessions(server)
                         for try await line in bytes.lines where line.hasPrefix("data:") {
                             self?.dispatch(Data(line.dropFirst(5).utf8))
                         }

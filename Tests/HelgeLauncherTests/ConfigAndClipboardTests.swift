@@ -34,9 +34,10 @@ import Testing
     @Test func missingConfigIsCreatedWithDefaults() throws {
         let d = try dir([:])
         let loaded = ConfigLoader.load(from: d)
-        #expect(loaded.error == nil)
+        #expect(loaded.error == nil && loaded.warnings.isEmpty)
         #expect(loaded.config?.hotkey == "cmd+space")
         #expect(FileManager.default.fileExists(atPath: d.appendingPathComponent("config.toml").path))
+        #expect(FileManager.default.fileExists(atPath: d.appendingPathComponent("snippets.toml").path))
     }
 }
 
@@ -92,6 +93,39 @@ extension PasteboardTests {
         #expect(h.restore(entry) == false)
         #expect(NSPasteboard.general.string(forType: .string) == "keep me")
         #expect(!h.entries.contains { $0.id == entry.id })
+    }
+
+    @Test func corruptHistoryKeepsItsImages() throws {
+        let fm = FileManager.default
+        let json = Paths.supportDir.appendingPathComponent("clipboard.json")
+        let image = Paths.supportDir.appendingPathComponent("clipboard-images/keep-\(UUID().uuidString).png")
+        let aside = json.appendingPathExtension("corrupt")
+        let saved = try? Data(contentsOf: json)
+        defer {
+            try? fm.removeItem(at: image)
+            try? fm.removeItem(at: aside)
+            if let saved { try? saved.write(to: json) } else { try? fm.removeItem(at: json) }
+        }
+        try fm.createDirectory(at: image.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data("png".utf8).write(to: image)
+        try Data("[{\"id\":".utf8).write(to: json)
+        let h = ClipboardHistory()
+        h.removeUnreferencedImages()
+        #expect(fm.fileExists(atPath: image.path))
+        #expect(fm.fileExists(atPath: aside.path))
+        #expect(h.entries.isEmpty)
+    }
+
+    @Test func zeroClearAfterNeverClears() async throws {
+        let saved = NSPasteboard.general.string(forType: .string)
+        defer {
+            NSPasteboard.general.clearContents()
+            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+        }
+        Pasteboard.copy("stay")
+        Pasteboard.clear(after: 0, ifStill: "stay")
+        try await Task.sleep(nanoseconds: 200_000_000)
+        #expect(NSPasteboard.general.string(forType: .string) == "stay")
     }
 
     @Test func zeroMaxItemsStillKeepsTheNewestEntry() {

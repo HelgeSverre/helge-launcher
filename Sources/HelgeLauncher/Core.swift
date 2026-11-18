@@ -214,6 +214,10 @@ enum Shell {
                 let once = ResumeOnce(cont)
                 p.terminationHandler = { proc in
                     _ = streams.wait(timeout: .now() + 0.2)
+                    out.fileHandleForReading.readabilityHandler = nil
+                    err.fileHandleForReading.readabilityHandler = nil
+                    try? out.fileHandleForReading.close()
+                    try? err.fileHandleForReading.close()
                     if proc.terminationStatus == 0 {
                         once.resume(returning: stdoutData.data)
                     } else {
@@ -234,9 +238,10 @@ enum Shell {
                 if cancelled.isSet { p.terminate() }
                 if let stdin { inp.fileHandleForWriting.write(stdin) }
                 try? inp.fileHandleForWriting.close()
-                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
+                DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { [weak p] in
+                    guard !once.isDone else { return }
                     once.resume(throwing: Failure(message: "\(name) timed out after \(String(format: "%g", timeout))s"))
-                    if p.isRunning { p.terminate() }
+                    if let p, p.isRunning { p.terminate() }
                 }
             }
         } onCancel: {

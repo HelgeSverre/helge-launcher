@@ -259,7 +259,11 @@ final class Launcher: ObservableObject {
 
     func askAI(_ q: String) {
         guard config.ai.enabled else { toast("AI is disabled in the config"); return }
-        guard !conversation.isBusy else { toast("Still answering · ⌘N for a new chat"); return }
+        guard !conversation.isBusy else {
+            query = q
+            toast("Still answering · ⌘N for a new chat")
+            return
+        }
         mode = .ai
         setItems([], keepSelection: false)
         submit(q)
