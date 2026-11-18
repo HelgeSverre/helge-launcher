@@ -257,14 +257,15 @@ final class Launcher: ObservableObject {
 
     // MARK: AI
 
-    /// Sends `q` to the AI. While an answer streams, the question is kept for later: it stays in the
-    /// search field (Tab), or opens in an empty chat field (URL scheme); an unsent draft is never replaced.
+    /// Sends `q` to the AI. A draft (a non-empty chat field that isn't `q`) is never cleared or
+    /// replaced. While an answer streams, `q` is kept in the field when that doesn't touch a draft.
     func askAI(_ q: String) {
         guard config.ai.enabled else { toast("AI is disabled in the config"); return }
-        guard !q.trimmingCharacters(in: .whitespaces).isEmpty else { openAIChat(); return }
-        guard !conversation.isBusy else {
-            let inField = query.trimmingCharacters(in: .whitespaces) == q
-            if !inField && (mode != .ai || query.isEmpty) {
+        guard !q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { openAIChat(); return }
+        let inField = query.trimmingCharacters(in: .whitespaces) == q
+        let hasDraft = mode == .ai && !query.isEmpty && !inField
+        if conversation.isBusy {
+            if !inField && !hasDraft {
                 mode = .ai
                 setItems([], keepSelection: false)
                 query = q
@@ -274,7 +275,8 @@ final class Launcher: ObservableObject {
         }
         mode = .ai
         setItems([], keepSelection: false)
-        submit(q)
+        conversation.send(q)
+        if !hasDraft { query = "" }
     }
 
     func openAIChat() {

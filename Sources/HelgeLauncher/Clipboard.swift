@@ -50,7 +50,10 @@ final class ClipboardHistory {
         loadedCleanly = false
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
         let aside = url.deletingLastPathComponent().appendingPathComponent("clipboard.json.corrupt-\(stamp)-\(UUID().uuidString.prefix(4))")
-        if (try? FileManager.default.moveItem(at: url, to: aside)) == nil { canSave = false }
+        if (try? FileManager.default.moveItem(at: url, to: aside)) == nil {
+            canSave = false
+            NSLog("Helge Launcher: clipboard.json is unreadable and couldn't be moved aside; history won't be saved this session")
+        }
     }
 
     func removeUnreferencedImages() {
@@ -117,11 +120,12 @@ final class ClipboardHistory {
         remove(Set(removed.map(\.id)))
     }
 
-    /// Removes entries and any image file no remaining entry references.
+    /// Removes entries, and image files no remaining entry references unless a set-aside history exists.
     private func remove(_ ids: Set<String>) {
         guard !ids.isEmpty else { return }
         let gone = entries.filter { ids.contains($0.id) }
         entries.removeAll { ids.contains($0.id) }
+        guard loadedCleanly else { return }
         for e in gone where e.kind == "image" && !entries.contains(where: { $0.kind == "image" && $0.text == e.text }) {
             try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(e.text))
         }

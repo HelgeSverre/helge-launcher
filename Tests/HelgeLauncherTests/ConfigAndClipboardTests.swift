@@ -149,6 +149,17 @@ extension PasteboardTests {
         #expect(!fm.fileExists(atPath: image.path))
     }
 
+    @Test func deletingAnEntryKeepsImagesASetAsideHistoryMayUse() throws {
+        let state = try ClipboardState()
+        defer { state.restore() }
+        try Data("[{\"id\":".utf8).write(to: state.json)
+        let h = ClipboardHistory()
+        copyImage(png(.green)); h.poll()
+        let entry = try #require(h.entries.first)
+        h.delete(entry.id)
+        #expect(FileManager.default.fileExists(atPath: state.images.appendingPathComponent(entry.text).path))
+    }
+
     @Test func setAsideFileFromAnEarlierBuildKeepsCleanupOff() throws {
         let state = try ClipboardState()
         defer { state.restore() }
@@ -171,10 +182,10 @@ extension PasteboardTests {
         try corrupt.write(to: state.json)
         try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: dir)
         let h = ClipboardHistory()
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
         NSPasteboard.general.clearContents()
         NSPasteboard.general.setString("new-\(UUID().uuidString)", forType: .string)
         h.poll()
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: dir)
         #expect(try Data(contentsOf: state.json) == corrupt)
     }
 
