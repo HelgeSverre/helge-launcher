@@ -143,3 +143,18 @@ Sweep A residuals handled in Sweep B: removed plugin while open (B2, test), `sen
 | B-Challenge | 94e8987 | launcher/items (reviewer 1) · config/clipboard/1P/process (reviewer 3) · app shell + style (reviewer 2) | no product regressions vs f545f01. Defects: `activationRecordsTheHistoryKeyOnly` (B3) activated a real root-list app after its first action rebuilt the list, launching apps such as Grit on every `swift test`; `Shell.spawn` could block the main thread on PATH resolution at launch. Repaired in c4aa58d + this batch: `Effects` (app/URL/reveal), `Shell.spawn` and the paste keystroke are no-ops under test runners; the test uses closing actions; `spawn` launches off the main thread. Depth: ranking reads `historyKey` (one frecency key; mode entries carry theirs); shared `NSVisualEffectView.panel(containing:)` and `framedPanel()` for both panels; `PluginConfig` test init requires non-empty exec. Behaviour notes: "Show in Finder" and "Open Website" now count as uses; plugin entries sort after built-in modes on equal score; `ItemIcon(spec:)` treats short lowercase ASCII as an SF Symbol name |
 | B-Verify | 9e750ea (delta from 94e8987) | Effects/spawn/ranking key (reviewer 3) · panels, CLI, docs vs code (reviewer 2) · whole-scope integration + document (reviewer 1) | no code defects; Sweep A invariants I2, I3, I5, I7, I9, I12 hold after the refactor; 4 doc mismatches fixed in f736061; this document corrected |
 
+## Final verification (cb90516, local)
+
+| Gate | Result |
+|---|---|
+| G1 debug build | pass (sha256 `95d4f3d9…`) |
+| G2 tests | 72 pass ×3 (baseline 13) |
+| G3 release bundle | pass, Developer ID (9Z2L5FBZS3) |
+| G4 universal signed package | pass, x86_64 + arm64, valid signature (not notarized) |
+| G5 example plugins | 7/7 through `--plugin` |
+| G7 TSan | 43 concurrency tests, no warnings |
+| lint | `just lint` clean |
+| G6 CI | not run for this snapshot: commits since 52c2f0d's successors are local, not pushed |
+
+Unverified: status-menu clicks and the Accessibility drag (GUI, by hand); notarization and CI for this snapshot (run on push).
+
