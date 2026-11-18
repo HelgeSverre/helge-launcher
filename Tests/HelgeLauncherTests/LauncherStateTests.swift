@@ -88,6 +88,25 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         #expect(l.mode == .ai && l.query == "second")
     }
 
+    @Test func busyAskFromAURLKeepsAnUnsentDraft() async {
+        let l = Launcher(ai: FakeAI())
+        l.config.ai.enabled = true
+        l.askAI("first")
+        await settle()
+        l.query = "my draft"
+        l.askAI("from shortcut")
+        #expect(l.mode == .ai && l.query == "my draft")
+    }
+
+    @Test func emptyQuestionOpensTheChatWithoutSending() async {
+        let ai = FakeAI()
+        let l = Launcher(ai: ai)
+        l.config.ai.enabled = true
+        l.askAI("  ")
+        await settle()
+        #expect(l.mode == .ai && l.conversation.turns.isEmpty && ai.prompts.isEmpty)
+    }
+
     @Test func openingTheChatKeepsADraft() {
         let l = Launcher(ai: FakeAI())
         l.config.ai.enabled = true

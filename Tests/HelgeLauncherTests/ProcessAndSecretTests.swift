@@ -104,11 +104,8 @@ func executable(_ body: String) throws -> String {
 extension PasteboardTests {
 @Suite @MainActor struct SnippetSecretTests {
     @Test func secretsAreConcealedSkippedByHistoryAndCleared() async throws {
-        let saved = NSPasteboard.general.string(forType: .string)
-        defer {
-            NSPasteboard.general.clearContents()
-            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
-        }
+        let snapshot = PasteboardSnapshot()
+        defer { snapshot.restore() }
         let history = ClipboardHistory()
         history.poll()
         let before = history.entries.count
@@ -137,11 +134,8 @@ extension PasteboardTests {
     }
 
     @Test func plainSnippetsAreOrdinaryCopies() {
-        let saved = NSPasteboard.general.string(forType: .string)
-        defer {
-            NSPasteboard.general.clearContents()
-            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
-        }
+        let snapshot = PasteboardSnapshot()
+        defer { snapshot.restore() }
         Snippets.deliver(.init(text: "plain", isSecret: false), paste: false, target: nil)
         #expect(!(NSPasteboard.general.types ?? []).contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")))
         #expect(NSPasteboard.general.string(forType: .string) == "plain")

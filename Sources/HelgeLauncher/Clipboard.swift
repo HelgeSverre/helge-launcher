@@ -21,19 +21,14 @@ final class ClipboardHistory {
     private let imageDir = Paths.supportDir.appendingPathComponent("clipboard-images")
     var config = ClipboardConfig()
 
-    /// False when the history couldn't be read, or a set-aside `clipboard.json.corrupt` still exists:
-    /// its images may be referenced there, so none are removed.
+    /// False while any set-aside history exists: its images may be referenced there, so none are removed.
     private var loadedCleanly = true
-    private var corruptURL: URL { url.appendingPathExtension("corrupt") }
-    private var stagingURL: URL { url.appendingPathExtension("moving") }
+    /// False when an unreadable history couldn't be moved aside; it is then never overwritten this session.
+    private var canSave = true
 
     init() {
         let fm = FileManager.default
         try? fm.createDirectory(at: imageDir, withIntermediateDirectories: true)
-        if fm.fileExists(atPath: stagingURL.path) {
-            if !fm.fileExists(atPath: corruptURL.path) { try? fm.moveItem(at: stagingURL, to: corruptURL) }
-            loadedCleanly = false
-        }
         if fm.fileExists(atPath: url.path) {
             if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([Entry].self, from: d) {
                 entries = e
@@ -41,17 +36,21 @@ final class ClipboardHistory {
                 setAside()
             }
         }
-        if fm.fileExists(atPath: corruptURL.path) { loadedCleanly = false }
+        if !setAsideFiles.isEmpty { loadedCleanly = false }
     }
 
-    /// Moves an unreadable history to `clipboard.json.corrupt`, replacing an older one only once the move worked.
+    /// `clipboard.json.corrupt-<time>` files, plus names used by earlier builds.
+    private var setAsideFiles: [String] {
+        let names = (try? FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)) ?? []
+        return names.filter { $0.hasPrefix("clipboard.json.corrupt") || $0 == "clipboard.json.moving" }
+    }
+
+    /// Moves an unreadable history to its own `clipboard.json.corrupt-<time>` file in one step.
     private func setAside() {
-        let fm = FileManager.default
         loadedCleanly = false
-        guard !fm.fileExists(atPath: stagingURL.path),
-              (try? fm.moveItem(at: url, to: stagingURL)) != nil else { return }
-        try? fm.removeItem(at: corruptURL)
-        try? fm.moveItem(at: stagingURL, to: corruptURL)
+        let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
+        let aside = url.deletingLastPathComponent().appendingPathComponent("clipboard.json.corrupt-\(stamp)-\(UUID().uuidString.prefix(4))")
+        if (try? FileManager.default.moveItem(at: url, to: aside)) == nil { canSave = false }
     }
 
     func removeUnreferencedImages() {
@@ -129,6 +128,7 @@ final class ClipboardHistory {
     }
 
     private func save() {
+        guard canSave else { return }
         if let d = try? JSONEncoder().encode(entries) { try? d.write(to: url, options: .atomic) }
     }
 
