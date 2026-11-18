@@ -62,7 +62,7 @@ HelgeLauncher --ai "What does open -a do?"
 
 | Symptom | Cause and fix |
 |---|---|
-| "Error: … did not start" | The `opencode` binary wasn't found, or it's an old one. The launcher uses your interactive zsh's `PATH`; check `which -a opencode`. An outdated Homebrew `opencode` (1.x) earlier on `PATH` than the current one breaks the v2 API. Run `brew uninstall opencode`, or set `opencode = "~/.bun/bin/opencode"`. |
-| "Failed: …" under the answer | The model or provider rejected the request: log in with `opencode auth login`, or check the model name with `opencode models`. |
+| "Failed: opencode serve did not start: …" | The `opencode` binary wasn't found, or it's an old one. The launcher uses your interactive zsh's `PATH`; check `which -a opencode`. An outdated Homebrew `opencode` (1.x) earlier on `PATH` than the current one breaks the v2 API. Run `brew uninstall opencode`, or set `opencode = "~/.bun/bin/opencode"`. |
+| Any other "Failed: …" under the answer | The model or provider rejected the request: log in with `opencode auth login`, or check the model name with `opencode models`. |
 | Answers that look like raw tool-call markup | The model tried a tool that is denied. Rephrase, or ask it to answer without tools. |
 | Nothing happens | Check that `[ai] enabled` isn't `false` and the config has no error (shown in the footer). |

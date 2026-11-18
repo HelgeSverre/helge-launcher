@@ -46,6 +46,7 @@ Signed with Developer ID and notarized; macOS 14 or later.
 | ⌘N | New AI chat |
 | ↵ on an empty AI field | Copy the last answer |
 | ⌘, | Edit the config |
+| ⌘W | Close |
 | ⌘A ⌘C ⌘V ⌘X ⌘Z | Text editing in the search field |
 
 ## Configuration
@@ -96,7 +97,7 @@ Open the launcher from scripts, Shortcuts or other apps:
 | `helgelauncher://emoji` | Emoji search |
 | `helgelauncher://snippets` | Snippet search |
 | `helgelauncher://1password` | 1Password search |
-| `helgelauncher://ai?q=question` | AI chat, asking the question |
+| `helgelauncher://ai?q=question` | AI chat, asking the question (without `q`: the chat) |
 
 ```sh
 open 'helgelauncher://ai?q=What%20is%20my%20IP%20used%20for'

@@ -134,7 +134,7 @@ icon = "lock"
 | `run` | string | one of `open`/`run` | Shell command, run with `zsh -lc` in the background (output is discarded) |
 | `hotkey` | [hotkey](#hotkeys) | no | Global shortcut that runs the command without opening the launcher |
 | `keywords` | list of strings | no | Extra words the search matches |
-| `icon` | string | no | SF Symbol name or an emoji. Default: a link or terminal symbol. |
+| `icon` | string | no | SF Symbol name (lowercase letters, digits, dots), image path, or any other text such as an emoji ([plugins.md](plugins.md#icons)). Default: a link or terminal symbol. |
 
 When both `open` and `run` are set, both happen.
 

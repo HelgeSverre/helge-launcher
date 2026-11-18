@@ -137,6 +137,7 @@ An empty list (`{"items": []}`) shows "No results".
 | `"star"`, `"book.closed"`, `"cpu"` | [SF Symbol](https://developer.apple.com/sf-symbols/) of that name |
 | `"🚀"` | That emoji |
 | `"/path/to/image.png"`, `"~/icon.png"`, `"/Applications/Slack.app"` | The image, or the file's Finder icon |
+| anything else (`"→"`, `"Star"`) | Shown as text |
 
 ### Errors
 
@@ -144,7 +145,7 @@ Errors are shown as a single item titled "*name* failed" with the reason as the 
 
 | Situation | Subtitle |
 |---|---|
-| Non-zero exit | The plugin's stderr (or `exit N` when stderr is empty) |
+| Non-zero exit | The plugin's stderr (or `<program>: exit N` when stderr is empty) |
 | stdout is not valid JSON in this format | The decoding error |
 | More than 15 seconds | "… timed out after 15s" |
 | `exec` not found / not executable | The `env` error, e.g. "No such file or directory" |
