@@ -67,13 +67,8 @@ use_service_account = false   # false: drop OP_SERVICE_ACCOUNT_TOKEN, use the de
 enabled = true
 
 [[command]]
-name = "Kassal"
-open = "https://kassal.app"   # URL, app or file path
-hotkey = "cmd+alt+k"
-
-[[command]]
 name = "Flush DNS"
-run = "sudo -n dscacheutil -flushcache"
+run = "sudo -n dscacheutil -flushcache"   # or open = "<URL, app or file path>"; optional hotkey = "cmd+alt+d"
 
 [[snippet]]
 name = "date"

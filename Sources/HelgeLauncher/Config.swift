@@ -173,10 +173,6 @@ enum ConfigLoader {
     [onepassword]
     clear_after = 90
 
-    # [[command]]
-    # name = "Kassal"
-    # open = "https://kassal.app"
-    # hotkey = "cmd+alt+k"
 
     # [[plugin]]
     # name = "Example"
