@@ -3,9 +3,12 @@ import SwiftUI
 
 final class LauncherPanel: NSPanel, NSWindowDelegate {
     init(launcher: Launcher) {
-        super.init(contentRect: NSRect(origin: .zero, size: Theme.panelSize),
-                   styleMask: [.nonactivatingPanel, .borderless],
-                   backing: .buffered, defer: false)
+        super.init(
+            contentRect: NSRect(origin: .zero, size: Theme.panelSize),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
         isMovableByWindowBackground = false
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .transient]
@@ -24,7 +27,8 @@ final class LauncherPanel: NSPanel, NSWindowDelegate {
         host.translatesAutoresizingMaskIntoConstraints = false
         fx.addSubview(host)
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor), host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
+            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
             host.topAnchor.constraint(equalTo: fx.topAnchor), host.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
         ])
         contentView = fx
@@ -73,9 +77,12 @@ struct SearchField: NSViewRepresentable {
 
     func updateNSView(_ f: NSTextField, context: Context) {
         if f.stringValue != text { f.stringValue = text }
-        f.placeholderAttributedString = NSAttributedString(string: placeholder, attributes: [
-            .foregroundColor: NSColor(Theme.muted), .font: Theme.nsSans(18),
-        ])
+        f.placeholderAttributedString = NSAttributedString(
+            string: placeholder,
+            attributes: [
+                .foregroundColor: NSColor(Theme.muted), .font: Theme.nsSans(18),
+            ]
+        )
         context.coordinator.parent = self
         if context.coordinator.lastFocus != focusToken {
             context.coordinator.lastFocus = focusToken
@@ -138,7 +145,9 @@ struct LauncherView: View {
                     .foregroundStyle(Theme.text2)
                     .padding(.horizontal, 7).frame(height: 22)
                     .background(RoundedRectangle(cornerRadius: Theme.radiusChip).fill(Theme.raised))
-                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusChip).strokeBorder(Theme.borderStrong, lineWidth: 1))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.radiusChip).strokeBorder(Theme.borderStrong, lineWidth: 1)
+                    )
             }
             SearchField(text: $l.query, placeholder: placeholder, focusToken: l.focusToken, onCommand: handle)
         }
@@ -162,7 +171,10 @@ struct LauncherView: View {
         case #selector(NSResponder.cancelOperation(_:)): l.back()
         case #selector(NSResponder.insertTab(_:)): l.tab()
         case #selector(NSResponder.deleteBackward(_:)):
-            if l.query.isEmpty && l.mode != .root { l.back(); return true }
+            if l.query.isEmpty && l.mode != .root {
+                l.back()
+                return true
+            }
             return false
         default: return false
         }
@@ -256,9 +268,16 @@ struct Row: View {
     var body: some View {
         HStack(spacing: 12) {
             IconView(icon: item.icon, selected: selected).frame(width: 22, height: 22)
-            Text(item.title).font(Theme.sans(14, selected ? .medium : .regular)).foregroundStyle(Theme.text).lineLimit(1)
+            Text(item.title)
+                .font(Theme.sans(14, selected ? .medium : .regular))
+                .foregroundStyle(Theme.text)
+                .lineLimit(1)
             if !item.subtitle.isEmpty {
-                Text(item.subtitle).font(Theme.sans(13)).foregroundStyle(Theme.muted).lineLimit(1).truncationMode(.middle)
+                Text(item.subtitle)
+                    .font(Theme.sans(13))
+                    .foregroundStyle(Theme.muted)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
             }
             Spacer(minLength: 8)
             if !item.accessory.isEmpty {
@@ -276,7 +295,10 @@ enum IconCache {
     static var cache: [String: NSImage] = [:]
     static func image(_ path: String) -> NSImage {
         if let i = cache[path] { return i }
-        let i = path.hasSuffix(".png") ? (NSImage(contentsOfFile: path) ?? NSWorkspace.shared.icon(forFile: path)) : NSWorkspace.shared.icon(forFile: path)
+        let i =
+            path.hasSuffix(".png")
+            ? (NSImage(contentsOfFile: path) ?? NSWorkspace.shared.icon(forFile: path))
+            : NSWorkspace.shared.icon(forFile: path)
         cache[path] = i
         return i
     }
@@ -288,7 +310,10 @@ struct IconView: View {
     var body: some View {
         switch icon {
         case .file(let p): Image(nsImage: IconCache.image(p)).resizable().aspectRatio(contentMode: .fit)
-        case .symbol(let s): Image(systemName: s).font(.system(size: 14, weight: .regular)).foregroundStyle(selected ? Theme.accentText : Theme.text2)
+        case .symbol(let s):
+            Image(systemName: s)
+                .font(.system(size: 14, weight: .regular))
+                .foregroundStyle(selected ? Theme.accentText : Theme.text2)
         case .emoji(let e): Text(e).font(.system(size: 19))
         case .none: Color.clear
         }
@@ -307,10 +332,17 @@ struct ActionsMenu: View {
                     if i == 0 { KeyCap(key: "↵") }
                     if i == 1 { KeyCap(key: "⌘↵") }
                 }
-                .padding(.horizontal, 10).frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: Theme.radiusChip).fill(i == l.actionIndex ? Theme.accentSoft : .clear))
+                .padding(.horizontal, 10)
+                .frame(height: 32)
+                .background(
+                    RoundedRectangle(cornerRadius: Theme.radiusChip)
+                        .fill(i == l.actionIndex ? Theme.accentSoft : .clear)
+                )
                 .contentShape(Rectangle())
-                .onTapGesture { l.actionIndex = i; l.activate() }
+                .onTapGesture {
+                    l.actionIndex = i
+                    l.activate()
+                }
             }
         }
         .padding(4)
@@ -339,7 +371,10 @@ struct ChatView: View {
                                     .textSelection(.enabled).lineSpacing(4)
                             }
                             if !t.status.isEmpty {
-                                Text(t.status).font(Theme.mono(11)).foregroundStyle(t.status.hasPrefix("Failed") || t.status.hasPrefix("Error") ? Theme.err : Theme.muted)
+                                Text(t.status).font(Theme.mono(11)).foregroundStyle(
+                                    t.status.hasPrefix("Failed") || t.status.hasPrefix("Error")
+                                        ? Theme.err : Theme.muted
+                                )
                             }
                         }
                         .id(t.id)
@@ -354,11 +389,11 @@ struct ChatView: View {
     }
 
     private func markdown(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
+            ?? AttributedString(s)
     }
 }
 
-/// A key cap: mono, bordered, on the darkest ground.
 struct KeyCap: View {
     let key: String
     var body: some View {

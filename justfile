@@ -39,6 +39,16 @@ icons:
 test:
     swift test
 
+# Format Sources and Tests with .swift-format (one argument per line when a call wraps).
+[group('test')]
+fmt:
+    swift format -i -r Sources Tests
+
+# Check formatting without changing files.
+[group('test')]
+lint:
+    swift format lint -r Sources Tests
+
 # Ranked search without the UI, e.g. `just search tp` or `just search thumbs emoji`.
 [group('test')]
 search query mode="root":

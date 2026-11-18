@@ -74,7 +74,7 @@ final class OnePassword {
 
     private var baseArgs: [String] { config.account.map { ["--account", $0] } ?? [] }
 
-    /// Without `use_service_account`, `OP_SERVICE_ACCOUNT_TOKEN` is removed so `op` uses the desktop app.
+    /// `OP_SERVICE_ACCOUNT_TOKEN` is removed unless `use_service_account`.
     private func opRun(_ args: [String], timeout: TimeInterval = 30) async throws -> Data {
         try await Shell.run(
             config.op,
@@ -100,8 +100,9 @@ final class OnePassword {
             cachedAt = Date()
             lastError = nil
             if accountUUID == nil,
-               let who = try? await opRun(["whoami", "--format", "json"] + baseArgs),
-               let obj = try? JSONSerialization.jsonObject(with: who) as? [String: Any] {
+                let who = try? await opRun(["whoami", "--format", "json"] + baseArgs),
+                let obj = try? JSONSerialization.jsonObject(with: who) as? [String: Any]
+            {
                 accountUUID = obj["account_uuid"] as? String
             }
         } catch {
@@ -135,7 +136,9 @@ final class OnePassword {
                     }
                     let clearAfter = self.config.clearAfter
                     Pasteboard.copySecret(v, clearAfter: clearAfter)
-                    Launcher.shared?.toast(clearAfter > 0 ? "\(label) copied, clears in \(clearAfter)s" : "\(label) copied")
+                    Launcher.shared?.toast(
+                        clearAfter > 0 ? "\(label) copied, clears in \(clearAfter)s" : "\(label) copied"
+                    )
                 } catch {
                     Launcher.shared?.toast("1Password: \(error.localizedDescription)")
                 }
@@ -146,7 +149,14 @@ final class OnePassword {
 
     var items: [Item] {
         if cached.isEmpty, let e = lastError {
-            return [Item(id: "op:error", title: "1Password unavailable", subtitle: e, icon: .symbol("exclamationmark.triangle"))]
+            return [
+                Item(
+                    id: "op:error",
+                    title: "1Password unavailable",
+                    subtitle: e,
+                    icon: .symbol("exclamationmark.triangle")
+                )
+            ]
         }
         return cached.map(item)
     }
@@ -161,14 +171,21 @@ final class OnePassword {
             actions.append(copySecret("Username") { try await self.field(it.id, "username") })
             actions.append(copySecret("One-Time Password") { try await self.otp(it.id) })
         }
-        actions.append(Action(title: "Open in 1Password") {
-            var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
-            if let a = self.accountUUID { url += "&a=\(a)" }
-            NSWorkspace.shared.open(URL(string: url)!)
-            return .close
-        })
+        actions.append(
+            Action(title: "Open in 1Password") {
+                var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
+                if let a = self.accountUUID { url += "&a=\(a)" }
+                NSWorkspace.shared.open(URL(string: url)!)
+                return .close
+            }
+        )
         if let href = it.website {
-            actions.append(Action(title: "Open Website") { openURL(href); return .close })
+            actions.append(
+                Action(title: "Open Website") {
+                    openURL(href)
+                    return .close
+                }
+            )
         }
         let details = [it.additionalInformation, it.vault.name].compactMap { $0 }.filter { !$0.isEmpty }
         return Item(

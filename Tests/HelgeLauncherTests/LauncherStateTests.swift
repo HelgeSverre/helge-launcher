@@ -1,16 +1,30 @@
 import Foundation
 import Testing
+
 @testable import HelgeLauncher
 
 @MainActor
 func item(_ id: String, log: Box<[String]>? = nil) -> Item {
-    Item(id: id, title: id, actions: [
-        Action(title: "Primary") { log?.value.append("\(id).primary"); return .stay },
-        Action(title: "Secondary") { log?.value.append("\(id).secondary"); return .stay },
-    ])
+    Item(
+        id: id,
+        title: id,
+        actions: [
+            Action(title: "Primary") {
+                log?.value.append("\(id).primary")
+                return .stay
+            },
+            Action(title: "Secondary") {
+                log?.value.append("\(id).secondary")
+                return .stay
+            },
+        ]
+    )
 }
 
-final class Box<T> { var value: T; init(_ v: T) { value = v } }
+final class Box<T> {
+    var value: T
+    init(_ v: T) { value = v }
+}
 
 @Suite @MainActor struct LauncherSelectionTests {
     @Test func keepSelectionFollowsTheItemById() {
@@ -61,7 +75,11 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
     @Test func modeEntriesKeepTheirIds() {
         var cfg = Config()
         cfg.plugin = [PluginConfig(name: "Units", exec: ["x"], prefix: "u")]
-        #expect(Mode.entries(cfg).map(\.id) == ["mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "plugin:Units"])
+        #expect(
+            Mode.entries(cfg).map(\.id) == [
+                "mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "plugin:Units",
+            ]
+        )
         cfg.ai.enabled = false
         cfg.clipboard.enabled = false
         cfg.onepassword.enabled = false
@@ -212,7 +230,11 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
 @Suite(.serialized) @MainActor struct PluginStalenessTests {
     func slowPlugin() throws -> String {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("slow-\(UUID().uuidString).sh")
-        try "#!/bin/sh\nsleep 0.4\necho '{\"items\":[{\"title\":\"STALE\"}]}'\n".write(to: url, atomically: true, encoding: .utf8)
+        try "#!/bin/sh\nsleep 0.4\necho '{\"items\":[{\"title\":\"STALE\"}]}'\n".write(
+            to: url,
+            atomically: true,
+            encoding: .utf8
+        )
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         return url.path
     }
@@ -221,7 +243,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         let l = Launcher(ai: FakeAI())
         l.config.plugin = [PluginConfig(name: "Slow", exec: [try slowPlugin()])]
         l.enter(.plugin("Slow"))
-        try await Task.sleep(nanoseconds: 200_000_000)   // past the debounce: the process is running
+        try await Task.sleep(nanoseconds: 200_000_000)  // past the debounce: the process is running
         l.back()
         #expect(l.mode == .root)
         let rootIDs = l.items.map(\.id)

@@ -106,9 +106,15 @@ enum Mode: Equatable {
             return item("Search Snippets", "text.quote")
         case .onepassword:
             guard config.onepassword.enabled else { return nil }
-            return item("1Password", "key.horizontal", subtitle: "Search vault items", keywords: ["password", "op", "1p"])
+            return item(
+                "1Password",
+                "key.horizontal",
+                subtitle: "Search vault items",
+                keywords: ["password", "op", "1p"]
+            )
         case .ai:
-            return config.ai.enabled ? item("AI Chat", "sparkles", subtitle: config.ai.model, keywords: ["ask", "ai"]) : nil
+            return config.ai.enabled
+                ? item("AI Chat", "sparkles", subtitle: config.ai.model, keywords: ["ask", "ai"]) : nil
         case .plugin(let name):
             guard let p = config.plugin.first(where: { $0.name == name }) else { return nil }
             return Item(
@@ -159,8 +165,8 @@ enum Fuzzy {
         for (ti, c) in t.enumerated() where qi < q.count {
             guard c == q[qi] else { continue }
             var s = 1.0
-            let wordStart = ti == 0 || " -_./(".contains(t[ti - 1]) ||
-                (tOrig[ti].isUppercase && !tOrig[ti - 1].isUppercase)
+            let wordStart =
+                ti == 0 || " -_./(".contains(t[ti - 1]) || (tOrig[ti].isUppercase && !tOrig[ti - 1].isUppercase)
             if wordStart { s += 3 }
             if prevMatch == ti - 1 { s += 2 }
             if firstMatch < 0 { firstMatch = ti }
@@ -171,9 +177,7 @@ enum Fuzzy {
         guard qi == q.count else { return nil }
         let lt = String(t)
         let lq = String(q)
-        if lt == lq { score += 30 }
-        else if lt.hasPrefix(lq) { score += 15 }
-        else if lt.contains(lq) { score += 6 }
+        if lt == lq { score += 30 } else if lt.hasPrefix(lq) { score += 15 } else if lt.contains(lq) { score += 6 }
         score -= Double(firstMatch) * 0.2
         score -= Double(t.count - q.count) * 0.02
         return score
@@ -192,7 +196,10 @@ enum Fuzzy {
 
 final class History {
     static let shared = History()
-    struct Entry: Codable { var count: Int; var last: Double }
+    struct Entry: Codable {
+        var count: Int
+        var last: Double
+    }
     private(set) var entries: [String: Entry] = [:]
     private let url = Paths.supportDir.appendingPathComponent("history.json")
 
@@ -210,7 +217,7 @@ final class History {
         if let d = try? JSONEncoder().encode(entries) { try? d.write(to: url, options: .atomic) }
     }
 
-    /// log-count weighted by a recency decay with a two-week half-life-ish curve.
+    /// log2(1 + count) × (0.35 + 0.65 / (1 + days / 14)).
     func boost(_ id: String) -> Double {
         guard let e = entries[id] else { return 0 }
         let days = max(0, (Date().timeIntervalSince1970 - e.last) / 86400)
@@ -256,11 +263,13 @@ enum Shell {
         try Task.checkCancellation()
         let p = makeProcess(program, args, env: env, unset: unset, cwd: cwd)
         let cancelled = LockedFlag()
-        let out = Pipe(), err = Pipe()
+        let out = Pipe()
+        let err = Pipe()
         p.standardOutput = out
         p.standardError = err
         p.standardInput = FileHandle.nullDevice
-        let stdoutData = LockedBuffer(), stderrData = LockedBuffer()
+        let stdoutData = LockedBuffer()
+        let stderrData = LockedBuffer()
         let streams = DispatchGroup()
         for (pipe, buffer) in [(out, stdoutData), (err, stderrData)] {
             streams.enter()
@@ -287,7 +296,9 @@ enum Shell {
                         once.resume(returning: stdoutData.data)
                     } else {
                         let msg = stderrData.text.trimmingCharacters(in: .whitespacesAndNewlines)
-                        once.resume(throwing: Failure(message: msg.isEmpty ? "\(name): exit \(proc.terminationStatus)" : msg))
+                        once.resume(
+                            throwing: Failure(message: msg.isEmpty ? "\(name): exit \(proc.terminationStatus)" : msg)
+                        )
                     }
                 }
                 if cancelled.isSet {
@@ -326,7 +337,13 @@ enum Shell {
         }
     }
 
-    private static func makeProcess(_ program: String, _ args: [String], env: [String: String], unset: [String], cwd: URL?) -> Process {
+    private static func makeProcess(
+        _ program: String,
+        _ args: [String],
+        env: [String: String],
+        unset: [String],
+        cwd: URL?
+    ) -> Process {
         let p = Process()
         p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
         p.arguments = [program] + args
@@ -369,13 +386,17 @@ enum Shell {
             }
         }
         let home = NSHomeDirectory()
-        return ["\(home)/.bun/bin", "\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin", "/usr/sbin", "/sbin"].joined(separator: ":")
+        return [
+            "\(home)/.bun/bin", "\(home)/.local/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin", "/bin",
+            "/usr/sbin", "/sbin",
+        ].joined(separator: ":")
     }()
 }
 
 enum Pasteboard {
     /// The system pasteboard; a private named pasteboard under test runners.
-    static let board: NSPasteboard = Paths.isTestRunner
+    static let board: NSPasteboard =
+        Paths.isTestRunner
         ? NSPasteboard(name: NSPasteboard.Name("HelgeLauncherTests-\(getpid())"))
         : .general
 

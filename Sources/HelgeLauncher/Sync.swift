@@ -12,7 +12,10 @@ final class ResumeOnce<T>: @unchecked Sendable {
     func resume(throwing e: Error) { take()?.resume(throwing: e) }
 
     private func take() -> CheckedContinuation<T, Error>? {
-        lock.withLock { defer { cont = nil }; return cont }
+        lock.withLock {
+            defer { cont = nil }
+            return cont
+        }
     }
 }
 

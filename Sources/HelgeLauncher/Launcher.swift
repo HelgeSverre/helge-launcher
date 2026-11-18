@@ -1,7 +1,6 @@
 import AppKit
 import SwiftUI
 
-/// Owns state for the panel: query, mode, results, AI chat.
 @MainActor
 final class Launcher: ObservableObject {
     static var shared: Launcher?
@@ -9,7 +8,12 @@ final class Launcher: ObservableObject {
     @Published var query = "" { didSet { if query != oldValue { queryChanged() } } }
     /// Leaving a mode cancels its pending plugin query.
     @Published var mode: Mode = .root {
-        didSet { if mode != oldValue { pluginTask?.cancel(); pluginTask = nil } }
+        didSet {
+            if mode != oldValue {
+                pluginTask?.cancel()
+                pluginTask = nil
+            }
+        }
     }
     @Published private(set) var items: [Item] = []
     @Published var selected = 0
@@ -18,7 +22,7 @@ final class Launcher: ObservableObject {
     @Published var toastText: String?
     @Published var configError: String?
     @Published var focusToken = 0
-    /// Increments on every `show`; lets delayed work detect that the panel was reopened.
+    /// Incremented by `show`.
     private(set) var showCount = 0
 
     var config = Config()
@@ -48,7 +52,7 @@ final class Launcher: ObservableObject {
 
     func toggle() { panel?.isVisible == true ? hide() : show() }
 
-    /// Opens the panel. The AI chat survives hide/show unless a mode or query is given; everything else starts clean.
+    /// Opens the panel; keeps the AI chat unless a mode or query is given.
     func show(mode m: Mode = .root, query q: String? = nil) {
         AppIndex.shared.refreshIfStale()
         if m != .root {
@@ -67,13 +71,19 @@ final class Launcher: ObservableObject {
     func hide() {
         showActions = false
         panel?.orderOut(nil)
-        if mode != .ai { mode = .root; query = "" }
+        if mode != .ai {
+            mode = .root
+            query = ""
+        }
     }
 
     func toast(_ s: String) {
         toastText = s
         toastTask?.cancel()
-        toastTask = Task { try? await Task.sleep(nanoseconds: 2_500_000_000); if !Task.isCancelled { toastText = nil } }
+        toastTask = Task {
+            try? await Task.sleep(nanoseconds: 2_500_000_000)
+            if !Task.isCancelled { toastText = nil }
+        }
     }
 
     // MARK: Items
@@ -84,21 +94,35 @@ final class Launcher: ObservableObject {
         all += UserCommands.items(config.command)
         all += Snippets.items(config.snippet)
         all += Mode.entries(config)
-        all.append(Item(
-            id: "hl.config",
-            title: "Edit Helge Launcher Config",
-            icon: .symbol("gearshape"),
-            keywords: ["settings", "preferences"],
-            accessory: "Command",
-            actions: [Action(title: "Open") { openURL(Paths.configFile.path); return .close }]
-        ))
-        all.append(Item(
-            id: "hl.reload",
-            title: "Reload Helge Launcher Config",
-            icon: .symbol("arrow.clockwise"),
-            accessory: "Command",
-            actions: [Action(title: "Reload") { (NSApp.delegate as? AppDelegate)?.reloadConfig(); return .stay }]
-        ))
+        all.append(
+            Item(
+                id: "hl.config",
+                title: "Edit Helge Launcher Config",
+                icon: .symbol("gearshape"),
+                keywords: ["settings", "preferences"],
+                accessory: "Command",
+                actions: [
+                    Action(title: "Open") {
+                        openURL(Paths.configFile.path)
+                        return .close
+                    }
+                ]
+            )
+        )
+        all.append(
+            Item(
+                id: "hl.reload",
+                title: "Reload Helge Launcher Config",
+                icon: .symbol("arrow.clockwise"),
+                accessory: "Command",
+                actions: [
+                    Action(title: "Reload") {
+                        (NSApp.delegate as? AppDelegate)?.reloadConfig()
+                        return .stay
+                    }
+                ]
+            )
+        )
         return all
     }
 
@@ -114,7 +138,12 @@ final class Launcher: ObservableObject {
                     subtitle: config.ai.model,
                     icon: .symbol("sparkles"),
                     accessory: "Tab",
-                    actions: [Action(title: "Ask") { self.askAI(q); return .stay }]
+                    actions: [
+                        Action(title: "Ask") {
+                            self.askAI(q)
+                            return .stay
+                        }
+                    ]
                 )
                 if r.isEmpty || r[0].score < 4 { r.insert(ask, at: 0) } else { r.append(ask) }
             }
@@ -135,9 +164,8 @@ final class Launcher: ObservableObject {
 
     func refresh() { setItems(computeItems(), keepSelection: false) }
 
-    /// Replaces the list. `keepSelection` keeps the same item selected (by id) when it is still listed;
-    /// otherwise the first item is selected. The actions menu closes when the selected item changes.
-    /// Duplicate ids get a `#n` suffix so list identity stays unique.
+    /// `keepSelection` keeps the selected id when it is still listed, else the first item is selected.
+    /// ⌘K closes when the selected item changes. Duplicate ids get a `#n` suffix.
     func setItems(_ new: [Item], keepSelection: Bool) {
         let previous = current?.id
         var used = Set<String>()
@@ -176,7 +204,9 @@ final class Launcher: ObservableObject {
         case .ai:
             break
         case .root:
-            if let p = config.plugin.first(where: { p in p.prefix.map { query.hasPrefix($0 + " ") } ?? false }), let prefix = p.prefix {
+            if let p = config.plugin.first(where: { p in p.prefix.map { query.hasPrefix($0 + " ") } ?? false }),
+                let prefix = p.prefix
+            {
                 enter(.plugin(p.name), query: String(query.dropFirst(prefix.count + 1)))
                 return
             }
@@ -210,7 +240,10 @@ final class Launcher: ObservableObject {
     }
 
     func back() {
-        if showActions { showActions = false; return }
+        if showActions {
+            showActions = false
+            return
+        }
         if mode == .root {
             if query.isEmpty { hide() } else { query = "" }
         } else {
@@ -235,14 +268,20 @@ final class Launcher: ObservableObject {
     }
 
     func activate(secondary: Bool = false) {
-        if mode == .ai { submitAI(); return }
+        if mode == .ai {
+            submitAI()
+            return
+        }
         guard let it = current else { return }
         if showActions {
             showActions = false
             run(it, action: actionIndex)
             return
         }
-        if let m = it.opens { enter(m); return }
+        if let m = it.opens {
+            enter(m)
+            return
+        }
         run(it, action: secondary ? 1 : 0)
     }
 
@@ -271,7 +310,6 @@ final class Launcher: ObservableObject {
         showActions.toggle()
     }
 
-    /// Tab: send the current query to AI.
     func tab() {
         let q = query.trimmingCharacters(in: .whitespaces)
         if mode == .root, config.ai.enabled, !q.isEmpty { askAI(q) }
@@ -279,11 +317,17 @@ final class Launcher: ObservableObject {
 
     // MARK: AI
 
-    /// Sends `q` to the AI. A draft (a non-empty chat field that isn't `q`) is never cleared or
-    /// replaced. While an answer streams, `q` is kept in the field when that doesn't touch a draft.
+    /// A draft (non-empty chat field that isn't `q`) is never cleared or replaced. While busy, `q`
+    /// stays in the field unless that would replace a draft.
     func askAI(_ q: String) {
-        guard config.ai.enabled else { toast("AI is disabled in the config"); return }
-        guard !q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { openAIChat(); return }
+        guard config.ai.enabled else {
+            toast("AI is disabled in the config")
+            return
+        }
+        guard !q.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            openAIChat()
+            return
+        }
         let inField = query.trimmingCharacters(in: .whitespaces) == q
         let hasDraft = mode == .ai && !query.isEmpty && !inField
         if conversation.isBusy {
@@ -302,7 +346,10 @@ final class Launcher: ObservableObject {
     }
 
     func openAIChat() {
-        guard config.ai.enabled else { toast("AI is disabled in the config"); return }
+        guard config.ai.enabled else {
+            toast("AI is disabled in the config")
+            return
+        }
         if mode != .ai { enter(.ai) }
     }
 

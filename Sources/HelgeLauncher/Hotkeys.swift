@@ -15,7 +15,8 @@ final class Hotkeys {
             "e": 14, "r": 15, "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22, "5": 23, "=": 24, "9": 25,
             "7": 26, "-": 27, "8": 28, "0": 29, "]": 30, "o": 31, "u": 32, "[": 33, "i": 34, "p": 35, "return": 36,
             "l": 37, "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44, "n": 45, "m": 46, ".": 47,
-            "tab": 48, "space": 49, "`": 50, "delete": 51, "escape": 53, "left": 123, "right": 124, "down": 125, "up": 126,
+            "tab": 48, "space": 49, "`": 50, "delete": 51, "escape": 53, "left": 123, "right": 124, "down": 125,
+            "up": 126,
         ]
         let f: [UInt32] = [122, 120, 99, 118, 96, 97, 98, 100, 101, 109, 103, 111, 105, 107, 113, 106, 64, 79, 80, 90]
         for (i, c) in f.enumerated() { m["f\(i + 1)"] = c }
@@ -58,7 +59,7 @@ final class Hotkeys {
         let status = RegisterEventHotKey(
             key,
             mods,
-            EventHotKeyID(signature: OSType(0x484C4E43), id: id),
+            EventHotKeyID(signature: OSType(0x484C_4E43), id: id),
             GetEventDispatcherTarget(),
             0,
             &ref
@@ -73,12 +74,26 @@ final class Hotkeys {
         guard !installed else { return }
         installed = true
         var spec = EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: UInt32(kEventHotKeyPressed))
-        InstallEventHandler(GetEventDispatcherTarget(), { _, event, _ in
-            var hk = EventHotKeyID()
-            GetEventParameter(event, EventParamName(kEventParamDirectObject), EventParamType(typeEventHotKeyID), nil,
-                              MemoryLayout<EventHotKeyID>.size, nil, &hk)
-            DispatchQueue.main.async { Hotkeys.shared.actions[hk.id]?() }
-            return noErr
-        }, 1, &spec, nil, nil)
+        InstallEventHandler(
+            GetEventDispatcherTarget(),
+            { _, event, _ in
+                var hk = EventHotKeyID()
+                GetEventParameter(
+                    event,
+                    EventParamName(kEventParamDirectObject),
+                    EventParamType(typeEventHotKeyID),
+                    nil,
+                    MemoryLayout<EventHotKeyID>.size,
+                    nil,
+                    &hk
+                )
+                DispatchQueue.main.async { Hotkeys.shared.actions[hk.id]?() }
+                return noErr
+            },
+            1,
+            &spec,
+            nil,
+            nil
+        )
     }
 }

@@ -46,8 +46,8 @@ protocol AIBackend: AnyObject {
     func release(_ session: AISession)
 }
 
-/// `opencode serve --stdio` as a child process. The child reads our pipe as stdin and exits when it
-/// closes, so it never outlives this process. States: idle → starting → running → idle (stop or exit).
+/// `opencode serve --stdio` child; it exits when its stdin pipe closes, including when this process dies.
+/// idle → starting → running → idle (stop or exit).
 @MainActor
 final class OpenCode: AIBackend {
     static let shared = OpenCode()
@@ -96,8 +96,7 @@ final class OpenCode: AIBackend {
         if new.enabled { Task { _ = try? await ensureStarted() } }
     }
 
-    /// Returns the running server's id, starting it if needed. Concurrent callers share one start;
-    /// when the start task finishes, the server is installed as running (or the start failed).
+    /// Starts the server if needed; concurrent callers share one start.
     func ensureStarted() async throws -> Int {
         guard config.enabled else { throw AIError.disabled }
         switch state {
@@ -147,7 +146,7 @@ final class OpenCode: AIBackend {
         failAll("the opencode server stopped")
     }
 
-    /// Closing stdin asks the server to exit; SIGTERM follows after 3 s if it hasn't.
+    /// Closing stdin asks the server to exit; SIGTERM after 3 s.
     private func terminate(_ s: Server) {
         s.events?.cancel()
         try? s.stdin.close()
@@ -184,7 +183,8 @@ final class OpenCode: AIBackend {
         env["PATH"] = await Shell.resolvedPath()
         env["OPENCODE_SERVER_PASSWORD"] = password
         p.environment = env
-        let stdin = Pipe(), stdout = Pipe()
+        let stdin = Pipe()
+        let stdout = Pipe()
         p.standardInput = stdin
         p.standardOutput = stdout
         p.standardError = FileHandle.nullDevice
@@ -207,7 +207,7 @@ final class OpenCode: AIBackend {
         }
     }
 
-    /// Reads stdout until the `{"url": …}` line, then keeps draining it so the child never blocks on a full pipe.
+    /// Reads stdout up to the `{"url": …}` line, then keeps draining it.
     private nonisolated static func readURL(from handle: FileHandle, timeout: TimeInterval) async throws -> URL {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<URL, Error>) in
             let once = ResumeOnce(cont)
@@ -223,7 +223,8 @@ final class OpenCode: AIBackend {
                 buffer.append(data)
                 for line in buffer.text.split(separator: "\n") {
                     if let obj = try? JSONSerialization.jsonObject(with: Data(line.utf8)) as? [String: Any],
-                       let s = obj["url"] as? String, let url = URL(string: s) {
+                        let s = obj["url"] as? String, let url = URL(string: s)
+                    {
                         once.resume(returning: url)
                         return
                     }
@@ -261,7 +262,12 @@ final class OpenCode: AIBackend {
         var full = text
         if let sys = config.system, !sys.isEmpty { full = sys + "\n\n" + text }
         do {
-            _ = try await call("api/session/\(session.id)/prompt", method: "POST", body: ["text": full], server: session.server)
+            _ = try await call(
+                "api/session/\(session.id)/prompt",
+                method: "POST",
+                body: ["text": full],
+                server: session.server
+            )
             handlers[session.id]?.accepted = Date()
         } catch {
             handlers[session.id] = nil
@@ -270,7 +276,12 @@ final class OpenCode: AIBackend {
     }
 
     func interrupt(_ session: AISession) async {
-        _ = try? await call("api/session/\(session.id)/interrupt", method: "POST", body: [String: Any](), server: session.server)
+        _ = try? await call(
+            "api/session/\(session.id)/interrupt",
+            method: "POST",
+            body: [String: Any](),
+            server: session.server
+        )
     }
 
     func release(_ session: AISession) {
@@ -279,10 +290,14 @@ final class OpenCode: AIBackend {
 
     // MARK: HTTP
 
-    private func request(_ path: String, server: Server, method: String = "GET", body: Any? = nil) throws -> URLRequest {
+    private func request(_ path: String, server: Server, method: String = "GET", body: Any? = nil) throws -> URLRequest
+    {
         var r = URLRequest(url: server.url.appendingPathComponent(path))
         r.httpMethod = method
-        r.setValue("Basic \(Data("opencode:\(password)".utf8).base64EncodedString())", forHTTPHeaderField: "Authorization")
+        r.setValue(
+            "Basic \(Data("opencode:\(password)".utf8).base64EncodedString())",
+            forHTTPHeaderField: "Authorization"
+        )
         if let body {
             r.setValue("application/json", forHTTPHeaderField: "Content-Type")
             r.httpBody = try JSONSerialization.data(withJSONObject: body)
@@ -301,12 +316,12 @@ final class OpenCode: AIBackend {
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
     }
 
-    /// Prompts whose session is no longer active finished while the event stream was down. Only
-    /// prompts the server accepted more than 2 s ago count; younger ones may not be running yet.
+    /// Finishes prompts accepted over 2 s ago whose session is no longer active.
     private func finishInactiveSessions(_ server: Server) async {
         guard !handlers.isEmpty,
-              let r = try? await call("api/session/active", method: "GET", body: nil, server: server.id),
-              let active = r["data"] as? [String: Any] else { return }
+            let r = try? await call("api/session/active", method: "GET", body: nil, server: server.id),
+            let active = r["data"] as? [String: Any]
+        else { return }
         let cutoff = Date().addingTimeInterval(-2)
         for (sid, h) in handlers where active[sid] == nil && h.accepted < cutoff {
             handlers[sid] = nil
@@ -314,11 +329,13 @@ final class OpenCode: AIBackend {
         }
     }
 
-    /// One event stream per server; reconnects after a 1 s pause until cancelled. Every connection
-    /// first finishes prompts whose final event may have been missed.
+    /// One event stream per server, reconnecting after 1 s; each connection first finishes prompts
+    /// whose final event may have been missed.
     private func subscribe(_ server: Server) -> Task<Void, Never> {
-        let types = ["session.text.delta", "session.tool.called", "session.execution.succeeded",
-                     "session.execution.failed", "session.execution.interrupted"]
+        let types = [
+            "session.text.delta", "session.tool.called", "session.execution.succeeded",
+            "session.execution.failed", "session.execution.interrupted",
+        ]
         var comps = URLComponents(url: server.url.appendingPathComponent("api/event"), resolvingAgainstBaseURL: false)!
         comps.queryItems = types.map { URLQueryItem(name: "types", value: $0) }
         guard var req = try? request("api/event", server: server) else { return Task {} }
@@ -342,16 +359,18 @@ final class OpenCode: AIBackend {
 
     private func dispatch(_ json: Data) {
         guard let obj = try? JSONSerialization.jsonObject(with: json) as? [String: Any],
-              let type = obj["type"] as? String,
-              let data = obj["data"] as? [String: Any],
-              let sid = data["sessionID"] as? String,
-              let handler = handlers[sid]?.deliver else { return }
+            let type = obj["type"] as? String,
+            let data = obj["data"] as? [String: Any],
+            let sid = data["sessionID"] as? String,
+            let handler = handlers[sid]?.deliver
+        else { return }
         let event: AIEvent
         switch type {
         case "session.text.delta": event = .delta(data["delta"] as? String ?? "")
         case "session.tool.called": event = .tool((data["tool"] as? String) ?? (data["name"] as? String) ?? "tool")
         case "session.execution.succeeded", "session.execution.interrupted": event = .done
-        default: event = .failed((data["error"] as? [String: Any])?["message"] as? String ?? "\(data["error"] ?? "failed")")
+        default:
+            event = .failed((data["error"] as? [String: Any])?["message"] as? String ?? "\(data["error"] ?? "failed")")
         }
         if event.isTerminal { handlers[sid] = nil }
         handler(event)

@@ -89,7 +89,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     private func showConfigStatus(_ problems: [String], keepingPrevious: Bool) {
         let text = problems.joined(separator: "; ")
         launcher.configError = problems.isEmpty ? nil : text
-        statusItem.menu?.item(withTag: MenuTag.configStatus.rawValue)?.title = problems.isEmpty ? "Config OK" : "Config: \(text)"
+        statusItem.menu?.item(withTag: MenuTag.configStatus.rawValue)?.title =
+            problems.isEmpty ? "Config OK" : "Config: \(text)"
         if !problems.isEmpty {
             NSLog("Helge Launcher config: %@%@", text, keepingPrevious ? " (keeping the previous config)" : "")
         }
@@ -97,8 +98,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     // MARK: Keys
 
-    /// ⌘-shortcuts the text field doesn't handle as commands. An accessory app has no Edit menu,
-    /// so text editing is routed here too.
+    /// ⌘-shortcuts the text field doesn't handle, including text editing (an accessory app has no Edit menu).
     private func installKeyMonitor() {
         let editing: [Int: Selector] = [
             kVK_ANSI_A: #selector(NSText.selectAll(_:)),
@@ -136,7 +136,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     private func setupStatusItem() {
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        let icon = Bundle.main.image(forResource: "MenuBarIcon")
+        let icon =
+            Bundle.main.image(forResource: "MenuBarIcon")
             ?? NSImage(systemSymbolName: "command", accessibilityDescription: nil)
         icon?.isTemplate = true
         icon?.size = NSSize(width: 22, height: 22)

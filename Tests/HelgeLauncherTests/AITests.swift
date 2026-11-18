@@ -1,12 +1,13 @@
 import Foundation
 import Testing
 
+@testable import HelgeLauncher
+
 extension Result where Failure == Error {
     init(catching body: () async throws -> Success) async {
         do { self = .success(try await body()) } catch { self = .failure(error) }
     }
 }
-@testable import HelgeLauncher
 
 /// Backend whose session creation and events are driven by the test.
 @MainActor
@@ -27,13 +28,19 @@ final class FakeAI: AIBackend {
     }
 
     func prompt(_ session: AISession, text: String, onEvent: @escaping @MainActor (AIEvent) -> Void) async throws {
-        if loseNextPrompt { loseNextPrompt = false; throw AIError.sessionLost }
+        if loseNextPrompt {
+            loseNextPrompt = false
+            throw AIError.sessionLost
+        }
         prompts.append((session, text))
         handlers[session.id] = onEvent
     }
 
     func interrupt(_ session: AISession) async {}
-    func release(_ session: AISession) { released.append(session); handlers[session.id] = nil }
+    func release(_ session: AISession) {
+        released.append(session)
+        handlers[session.id] = nil
+    }
 
     func emit(_ sid: String, _ e: AIEvent) { handlers[sid]?(e) }
 }
@@ -43,11 +50,12 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
 
 @Suite @MainActor struct ConversationTests {
     @Test func secondQuestionWaitsForTheFirstAnswer() async {
-        let ai = FakeAI(), c = Conversation(backend: ai)
+        let ai = FakeAI()
+        let c = Conversation(backend: ai)
         #expect(c.send("Q1"))
         await settle()
         ai.emit("s1", .delta("one"))
-        #expect(!c.send("Q2"))                     // still streaming
+        #expect(!c.send("Q2"))  // still streaming
         ai.emit("s1", .delta(" two"))
         ai.emit("s1", .done)
         #expect(c.turns.count == 1 && c.turns[0].answer == "one two" && c.turns[0].done)
@@ -60,7 +68,8 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
     }
 
     @Test func resetDropsAPendingSessionAndItsEvents() async {
-        let ai = FakeAI(), c = Conversation(backend: ai)
+        let ai = FakeAI()
+        let c = Conversation(backend: ai)
         ai.holdCreate = true
         c.send("old")
         await settle()
@@ -68,7 +77,7 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         ai.holdCreate = false
         c.send("new")
         await settle()
-        ai.pendingCreate?.resume(returning: AISession(id: "s1", server: 1))   // the old creation completes late
+        ai.pendingCreate?.resume(returning: AISession(id: "s1", server: 1))  // the old creation completes late
         await settle()
         #expect(ai.prompts.map(\.text) == ["new"])
         ai.emit("s1", .delta("stale"))
@@ -77,7 +86,8 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
     }
 
     @Test func resetReleasesTheSessionSoLateEventsAreIgnored() async {
-        let ai = FakeAI(), c = Conversation(backend: ai)
+        let ai = FakeAI()
+        let c = Conversation(backend: ai)
         c.send("Q1")
         await settle()
         let handler = ai.handlers["s1"]
@@ -88,7 +98,8 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
     }
 
     @Test func lostSessionIsRecreatedOnce() async {
-        let ai = FakeAI(), c = Conversation(backend: ai)
+        let ai = FakeAI()
+        let c = Conversation(backend: ai)
         c.send("Q1")
         await settle()
         ai.emit("s1", .done)
@@ -100,7 +111,8 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
     }
 
     @Test func failureEndsTheTurn() async {
-        let ai = FakeAI(), c = Conversation(backend: ai)
+        let ai = FakeAI()
+        let c = Conversation(backend: ai)
         c.send("Q1")
         await settle()
         ai.emit("s1", .failed("boom"))
@@ -148,9 +160,14 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("pid-\(UUID().uuidString)").path
         let oc = try server(#"echo $$ > "# + pidFile + #"; echo '{"url":"http://127.0.0.1:9"}'; cat > /dev/null"#)
         let first = try await oc.ensureStarted()
-        let pid = try #require(Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        let pid = try #require(
+            Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        )
         kill(pid, SIGKILL)
-        for _ in 0..<100 { try await Task.sleep(nanoseconds: 20_000_000); if (try? await oc.ensureStarted()) != first { break } }
+        for _ in 0..<100 {
+            try await Task.sleep(nanoseconds: 20_000_000)
+            if (try? await oc.ensureStarted()) != first { break }
+        }
         let second = try await oc.ensureStarted()
         #expect(second != first)
         oc.stop()
@@ -168,7 +185,9 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         let oc = try server(#"echo '{"url":"http://127.0.0.1:9"}'; cat > /dev/null; touch "# + marker)
         _ = try await oc.ensureStarted()
         oc.stop()
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker) { try await Task.sleep(nanoseconds: 20_000_000) }
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
         #expect(FileManager.default.fileExists(atPath: marker))
     }
 
@@ -195,8 +214,12 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("start-\(UUID().uuidString)").path
         let oc = try server(#"echo $$ > "# + pidFile + #"; exec sleep 5"#)
         Task { _ = try? await oc.ensureStarted() }
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: pidFile) { try await Task.sleep(nanoseconds: 20_000_000) }
-        let pid = try #require(Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        for _ in 0..<100 where !FileManager.default.fileExists(atPath: pidFile) {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+        let pid = try #require(
+            Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
+        )
         oc.stop()
         try await Task.sleep(nanoseconds: 500_000_000)
         #expect(kill(pid, 0) != 0)

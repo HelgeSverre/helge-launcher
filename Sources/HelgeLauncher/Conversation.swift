@@ -74,7 +74,10 @@ final class Conversation: ObservableObject {
         creating = task
         do {
             let s = try await task.value
-            if epoch == self.epoch { session = s; creating = nil }
+            if epoch == self.epoch {
+                session = s
+                creating = nil
+            }
             return s
         } catch {
             if epoch == self.epoch { creating = nil }
@@ -85,10 +88,16 @@ final class Conversation: ObservableObject {
     private func apply(_ event: AIEvent, turn: UUID, epoch: Int) {
         guard epoch == self.epoch, let i = turns.firstIndex(where: { $0.id == turn }), !turns[i].done else { return }
         switch event {
-        case .delta(let d): turns[i].answer += d; turns[i].status = ""
+        case .delta(let d):
+            turns[i].answer += d
+            turns[i].status = ""
         case .tool(let t): turns[i].status = "Using \(t)…"
-        case .done: turns[i].done = true; turns[i].status = ""
-        case .failed(let e): turns[i].done = true; turns[i].status = "Failed: \(e)"
+        case .done:
+            turns[i].done = true
+            turns[i].status = ""
+        case .failed(let e):
+            turns[i].done = true
+            turns[i].status = "Failed: \(e)"
         }
     }
 }

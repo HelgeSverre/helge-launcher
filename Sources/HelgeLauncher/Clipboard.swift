@@ -66,7 +66,7 @@ final class ClipboardHistory {
         if !setAsideFiles.isEmpty { loadedCleanly = false }
     }
 
-    /// `clipboard.json.corrupt-<time>` files, plus names used by earlier builds.
+    /// `clipboard.json.corrupt*` and the legacy `clipboard.json.moving`.
     private var setAsideFiles: [String] {
         let names = (try? FileManager.default.contentsOfDirectory(atPath: url.deletingLastPathComponent().path)) ?? []
         return names.filter { $0.hasPrefix("clipboard.json.corrupt") || $0 == "clipboard.json.moving" }
@@ -76,17 +76,21 @@ final class ClipboardHistory {
     private func setAside() {
         loadedCleanly = false
         let stamp = ISO8601DateFormatter().string(from: Date()).replacingOccurrences(of: ":", with: "")
-        let aside = url.deletingLastPathComponent().appendingPathComponent("clipboard.json.corrupt-\(stamp)-\(UUID().uuidString.prefix(4))")
+        let name = "clipboard.json.corrupt-\(stamp)-\(UUID().uuidString.prefix(4))"
+        let aside = url.deletingLastPathComponent().appendingPathComponent(name)
         if (try? FileManager.default.moveItem(at: url, to: aside)) == nil {
             canSave = false
-            NSLog("Helge Launcher: clipboard.json is unreadable and couldn't be moved aside; history won't be saved this session")
+            NSLog(
+                "Helge Launcher: clipboard.json is unreadable and couldn't be moved aside; history won't be saved this session"
+            )
         }
     }
 
     func removeUnreferencedImages() {
         guard loadedCleanly else { return }
         let referenced = Set(entries.filter { $0.kind == .image }.map(\.text))
-        for name in (try? FileManager.default.contentsOfDirectory(atPath: imageDir.path)) ?? [] where !referenced.contains(name) {
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: imageDir.path)) ?? []
+        where !referenced.contains(name) {
             try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(name))
         }
     }
@@ -97,14 +101,16 @@ final class ClipboardHistory {
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.poll() }
     }
 
-    func stop() { timer?.invalidate(); timer = nil }
+    func stop() {
+        timer?.invalidate()
+        timer = nil
+    }
 
     func poll() {
         let pb = Pasteboard.board
         guard pb.changeCount != lastChange else { return }
         lastChange = pb.changeCount
         let types = pb.types ?? []
-        // Respect nspasteboard.org markers set by password managers.
         if types.contains(where: { Pasteboard.skippedTypes.contains($0.rawValue) }) { return }
         let app = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         if let app, config.ignoreApps.contains(app) { return }
@@ -116,7 +122,8 @@ final class ClipboardHistory {
         } else if let s = pb.string(forType: .string), !s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             entry = Entry(id: UUID().uuidString, kind: .classify(s), text: s, app: app, date: now)
         } else if let img = NSImage(pasteboard: pb), let tiff = img.tiffRepresentation,
-                  let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
+            let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:])
+        {
             let name = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined() + ".png"
             let file = imageDir.appendingPathComponent(name)
             if !FileManager.default.fileExists(atPath: file.path) { try? png.write(to: file) }
@@ -173,8 +180,8 @@ final class ClipboardHistory {
         save()
     }
 
-    /// Puts an entry back on the pasteboard without recording it as a new copy. Returns false (and
-    /// drops the entry, leaving the pasteboard untouched) when its image file is gone.
+    /// Puts an entry back on the pasteboard without recording a new copy. When its image file is gone,
+    /// drops the entry, leaves the pasteboard alone and returns false.
     @discardableResult
     func restore(_ e: Entry) -> Bool {
         var image: NSImage?
@@ -210,18 +217,30 @@ final class ClipboardHistory {
             let title: String
             let icon: ItemIcon
             switch e.kind {
-            case .image: title = "Image"; icon = .file(imageDir.appendingPathComponent(e.text).path)
-            case .file: title = (e.text as NSString).lastPathComponent; icon = .file(e.text)
-            case .link: title = e.text; icon = .symbol("link")
-            case .color: title = e.text; icon = .symbol("paintpalette")
+            case .image:
+                title = "Image"
+                icon = .file(imageDir.appendingPathComponent(e.text).path)
+            case .file:
+                title = (e.text as NSString).lastPathComponent
+                icon = .file(e.text)
+            case .link:
+                title = e.text
+                icon = .symbol("link")
+            case .color:
+                title = e.text
+                icon = .symbol("paintpalette")
             default:
-                title = e.text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).first ?? ""
+                title =
+                    e.text.trimmingCharacters(in: .whitespacesAndNewlines).components(separatedBy: .newlines).first
+                    ?? ""
                 icon = .symbol("doc.plaintext")
             }
             return Item(
-                id: "clip:" + e.id, title: String(title.prefix(200)),
+                id: "clip:" + e.id,
+                title: String(title.prefix(200)),
                 subtitle: rel.localizedString(for: Date(timeIntervalSince1970: e.date), relativeTo: Date()),
-                icon: icon, keywords: e.kind == .text ? [e.text] : [],
+                icon: icon,
+                keywords: e.kind == .text ? [e.text] : [],
                 accessory: e.pinned ? "Pinned" : "",
                 actions: [
                     Action(title: "Paste") {
@@ -239,10 +258,17 @@ final class ClipboardHistory {
                         }
                         return .close
                     },
-                    Action(title: e.pinned ? "Unpin" : "Pin") { self.togglePin(e.id); return .stay },
-                    Action(title: "Delete") { self.delete(e.id); return .stay },
+                    Action(title: e.pinned ? "Unpin" : "Pin") {
+                        self.togglePin(e.id)
+                        return .stay
+                    },
+                    Action(title: "Delete") {
+                        self.delete(e.id)
+                        return .stay
+                    },
                 ],
-                preview: e.kind == .image ? nil : e.text)
+                preview: e.kind == .image ? nil : e.text
+            )
         }
     }
 }

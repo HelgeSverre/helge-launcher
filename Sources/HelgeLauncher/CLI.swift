@@ -91,7 +91,9 @@ enum CLI {
                 case .delta(let d): FileHandle.standardOutput.write(Data(d.utf8))
                 case .tool(let t): FileHandle.standardError.write(Data("[tool \(t)]\n".utf8))
                 case .done: finished = true
-                case .failed(let e): print("\nfailed: \(e)"); finished = true
+                case .failed(let e):
+                    print("\nfailed: \(e)")
+                    finished = true
                 }
             }
             let deadline = Date().addingTimeInterval(120)
@@ -131,7 +133,8 @@ enum CLI {
                 turns: [
                     ChatTurn(
                         question: "What does `open -a` do?",
-                        answer: "`open -a` launches the named application (for example `open -a Safari`) and can open files or URLs with it.",
+                        answer:
+                            "`open -a` launches the named application (for example `open -a Safari`) and can open files or URLs with it.",
                         done: true
                     )
                 ]

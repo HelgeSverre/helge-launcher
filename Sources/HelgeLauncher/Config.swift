@@ -202,7 +202,9 @@ enum Paths {
         } else if let dir = ProcessInfo.processInfo.environment["HL_DATA_DIR"] {
             u = URL(fileURLWithPath: resolve(dir, against: URL(fileURLWithPath: NSHomeDirectory())))
         } else {
-            u = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("HelgeLauncher")
+            u = fm.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent(
+                "HelgeLauncher"
+            )
         }
         try? fm.createDirectory(at: u, withIntermediateDirectories: true)
         return u
@@ -217,34 +219,34 @@ enum Paths {
 
 enum ConfigLoader {
     static let defaultConfig = """
-    # Helge Launcher config. Saved changes apply immediately.
-    hotkey = "cmd+space"
-    launch_at_login = false
-    include = ["snippets.toml"]
+        # Helge Launcher config. Saved changes apply immediately.
+        hotkey = "cmd+space"
+        launch_at_login = false
+        include = ["snippets.toml"]
 
-    [ai]
-    model = "opencode-go/deepseek-v4.1-flash"
+        [ai]
+        model = "opencode-go/deepseek-v4.1-flash"
 
-    [clipboard]
-    max_items = 500
+        [clipboard]
+        max_items = 500
 
-    [onepassword]
-    clear_after = 90
+        [onepassword]
+        clear_after = 90
 
 
-    # [[plugin]]
-    # name = "Example"
-    # exec = "plugins/example.sh"
-    # prefix = "ex"
-    """
+        # [[plugin]]
+        # name = "Example"
+        # exec = "plugins/example.sh"
+        # prefix = "ex"
+        """
 
     static let defaultSnippets = """
-    # Snippets: see docs/snippets.md.
-    # [[snippet]]
-    # name = "email"
-    # text = "you@example.com"
+        # Snippets: see docs/snippets.md.
+        # [[snippet]]
+        # name = "email"
+        # text = "you@example.com"
 
-    """
+        """
 
     struct Loaded {
         /// nil when a file failed to parse.

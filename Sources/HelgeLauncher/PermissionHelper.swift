@@ -2,9 +2,8 @@ import AppKit
 import ApplicationServices
 import SwiftUI
 
-/// Opens System Settings → Privacy & Security → Accessibility and pins a small panel to the
-/// Settings window with the app icon, which can be dragged straight into the list.
-/// Closes itself once the permission is granted or Settings is closed.
+/// Opens Accessibility settings and pins a draggable app icon under the Settings window until access
+/// is granted or Settings closes.
 @MainActor
 final class PermissionHelper {
     static let shared = PermissionHelper()
@@ -45,7 +44,7 @@ final class PermissionHelper {
             return
         }
         guard let frame = settingsWindowFrame() else {
-            // Give Settings a few seconds to open; close the helper when the user closes Settings.
+            // Settings gets 8 s to open.
             if sawSettings || Date().timeIntervalSince(started) > 8 { stop() } else { panel?.orderOut(nil) }
             return
         }
@@ -55,22 +54,25 @@ final class PermissionHelper {
 
     /// System Settings' main window in Cocoa coordinates. Window bounds need no Screen Recording permission.
     private func settingsWindowFrame() -> NSRect? {
-        guard let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] else { return nil }
+        guard
+            let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID)
+                as? [[String: Any]]
+        else { return nil }
         let primaryHeight = NSScreen.screens.first?.frame.height ?? 0
         for w in list {
             guard let owner = w[kCGWindowOwnerName as String] as? String,
-                  owner == "System Settings" || owner == "System Preferences",
-                  (w[kCGWindowLayer as String] as? Int) == 0,
-                  let b = w[kCGWindowBounds as String] as? [String: CGFloat],
-                  let x = b["X"], let y = b["Y"], let width = b["Width"], let height = b["Height"],
-                  width > 300, height > 200 else { continue }
+                owner == "System Settings" || owner == "System Preferences",
+                (w[kCGWindowLayer as String] as? Int) == 0,
+                let b = w[kCGWindowBounds as String] as? [String: CGFloat],
+                let x = b["X"], let y = b["Y"], let width = b["Width"], let height = b["Height"],
+                width > 300, height > 200
+            else { continue }
             return NSRect(x: x, y: primaryHeight - y - height, width: width, height: height)
         }
         return nil
     }
 
-    /// Centers under the content (right-hand) side of the Settings window; overlaps its bottom edge
-    /// when there is no room below.
+    /// Under the Settings content pane; inside its bottom edge when there is no room below.
     private func place(_ p: NSPanel?, below s: NSRect) {
         guard let p else { return }
         let sidebar: CGFloat = min(260, s.width * 0.32)
@@ -82,10 +84,12 @@ final class PermissionHelper {
         if !p.isVisible { p.orderFrontRegardless() }
     }
 
-    /// Debug: renders the helper content to a PNG (visual-effect blur replaced by a flat dark fill).
+    /// `--render-helper`: the helper on a flat background.
     func renderPreview(to path: String) {
-        let host = NSHostingView(rootView: HelperView(onClose: {})
-            .background(Theme.surface))
+        let host = NSHostingView(
+            rootView: HelperView(onClose: {})
+                .background(Theme.surface)
+        )
         host.appearance = NSAppearance(named: .darkAqua)
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         host.layoutSubtreeIfNeeded()
@@ -94,8 +98,12 @@ final class PermissionHelper {
     }
 
     private func makePanel() -> NSPanel {
-        let p = NSPanel(contentRect: NSRect(x: 0, y: 0, width: 320, height: 68),
-                        styleMask: [.nonactivatingPanel, .borderless], backing: .buffered, defer: false)
+        let p = NSPanel(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 68),
+            styleMask: [.nonactivatingPanel, .borderless],
+            backing: .buffered,
+            defer: false
+        )
         p.level = .floating
         p.isOpaque = false
         p.backgroundColor = .clear
@@ -113,11 +121,11 @@ final class PermissionHelper {
         host.translatesAutoresizingMaskIntoConstraints = false
         fx.addSubview(host)
         NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor), host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
+            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
+            host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
             host.topAnchor.constraint(equalTo: fx.topAnchor), host.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
         ])
         p.contentView = fx
-        // Size the panel to its content so the text never clips or wraps awkwardly.
         p.setContentSize(host.fittingSize)
         p.invalidateShadow()
         return p
@@ -154,7 +162,7 @@ private struct HelperView: View {
     }
 }
 
-/// The app icon as a drag source carrying the bundle's file URL, which the Accessibility list accepts.
+/// Drag source carrying the app bundle's file URL.
 private struct DragIcon: NSViewRepresentable {
     func makeNSView(context: Context) -> DragSourceView { DragSourceView() }
     func updateNSView(_ v: DragSourceView, context: Context) {}
@@ -177,7 +185,10 @@ final class DragSourceView: NSView, NSDraggingSource {
         beginDraggingSession(with: [item], event: event, source: self)
     }
 
-    func draggingSession(_ session: NSDraggingSession, sourceOperationMaskFor context: NSDraggingContext) -> NSDragOperation {
+    func draggingSession(
+        _ session: NSDraggingSession,
+        sourceOperationMaskFor context: NSDraggingContext
+    ) -> NSDragOperation {
         .copy
     }
 }

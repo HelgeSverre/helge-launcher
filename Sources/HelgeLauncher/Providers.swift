@@ -164,9 +164,9 @@ enum Emoji {
         for r in ranges {
             for v in r {
                 guard let s = Unicode.Scalar(v),
-                      s.properties.isEmoji,
-                      s.properties.isEmojiPresentation || r.lowerBound == 0x2600,
-                      let name = s.properties.name
+                    s.properties.isEmoji,
+                    s.properties.isEmojiPresentation || r.lowerBound == 0x2600,
+                    let name = s.properties.name
                 else { continue }
                 out.append((String(s), name.lowercased()))
             }
@@ -226,7 +226,12 @@ enum Placeholders {
             case ("date", let f?): value = format(f)
             case ("time", nil): value = format("HH:mm")
             case ("datetime", nil): value = format("yyyy-MM-dd HH:mm")
-            case ("iso", nil): value = ISO8601DateFormatter.string(from: now, timeZone: .current, formatOptions: [.withInternetDateTime])
+            case ("iso", nil):
+                value = ISO8601DateFormatter.string(
+                    from: now,
+                    timeZone: .current,
+                    formatOptions: [.withInternetDateTime]
+                )
             case ("weekday", nil): value = format("EEEE")
             case ("timestamp", nil): value = String(Int(now.timeIntervalSince1970))
             case ("uuid", nil): value = UUID().uuidString.lowercased()
@@ -265,7 +270,11 @@ enum Snippets {
     }
 
     /// True when `target` is still frontmost and the launcher hasn't been shown since `showCount`.
-    @MainActor static func canPaste(into target: NSRunningApplication?, showCount: Int?, launcher: Launcher? = nil) -> Bool {
+    @MainActor static func canPaste(
+        into target: NSRunningApplication?,
+        showCount: Int?,
+        launcher: Launcher? = nil
+    ) -> Bool {
         guard let target, NSWorkspace.shared.frontmostApplication == target else { return false }
         guard let launcher = launcher ?? Launcher.shared else { return true }
         return launcher.showCount == showCount && launcher.panel?.isVisible != true
@@ -297,7 +306,9 @@ enum Snippets {
                         let target = NSWorkspace.shared.frontmostApplication
                         let shown = Launcher.shared?.showCount
                         Task { @MainActor in
-                            if let e = await expand(s.text) { deliver(e, paste: true, target: target, showCount: shown) }
+                            if let e = await expand(s.text) {
+                                deliver(e, paste: true, target: target, showCount: shown)
+                            }
                         }
                         return .close
                     },

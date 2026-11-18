@@ -1,12 +1,15 @@
 import Foundation
 import Testing
+
 @testable import HelgeLauncher
 
 @Suite struct SnippetPlaceholders {
     // 2026-11-18 14:05:09 UTC; formatted in the test process's time zone like the app does.
     let now = Date(timeIntervalSince1970: 1_795_010_709)
     func local(_ f: String) -> String {
-        let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX"); df.dateFormat = f
+        let df = DateFormatter()
+        df.locale = Locale(identifier: "en_US_POSIX")
+        df.dateFormat = f
         return df.string(from: now)
     }
     func expand(_ s: String) -> String { Placeholders.expand(s, now: now, clipboard: { "CLIP" }) }
@@ -21,7 +24,10 @@ import Testing
     }
 
     @Test func iso() {
-        #expect(expand("{iso}") == ISO8601DateFormatter.string(from: now, timeZone: .current, formatOptions: [.withInternetDateTime]))
+        #expect(
+            expand("{iso}")
+                == ISO8601DateFormatter.string(from: now, timeZone: .current, formatOptions: [.withInternetDateTime])
+        )
     }
 
     @Test func clipboardAndUUID() {
@@ -57,7 +63,8 @@ import Testing
 
 @Suite struct PluginProtocol {
     @Test func decodesAllFields() throws {
-        let json = #"{"items":[{"id":"1","title":"T","subtitle":"S","icon":"star","accessory":"A","actions":[{"title":"Open","open":"https://x"},{"title":"Copy","copy":"c"}]},{"title":"Minimal"}]}"#
+        let json =
+            #"{"items":[{"id":"1","title":"T","subtitle":"S","icon":"star","accessory":"A","actions":[{"title":"Open","open":"https://x"},{"title":"Copy","copy":"c"}]},{"title":"Minimal"}]}"#
         let out = try JSONDecoder().decode(Plugins.Output.self, from: Data(json.utf8))
         #expect(out.items.count == 2)
         #expect(out.items[0].actions?.count == 2)
@@ -70,7 +77,10 @@ import Testing
             if case .emoji(e) = ItemIcon(spec: e) {} else { Issue.record("\(e) should be text") }
         }
         if case .symbol("gearshape") = ItemIcon(spec: "gearshape") {} else { Issue.record("symbol") }
-        if case .symbol("square.and.arrow.up") = ItemIcon(spec: "square.and.arrow.up") {} else { Issue.record("dotted symbol") }
+        if case .symbol("square.and.arrow.up") = ItemIcon(spec: "square.and.arrow.up") {
+        } else {
+            Issue.record("dotted symbol")
+        }
         if case .file(let p) = ItemIcon(spec: "~/a.png") { #expect(p.hasPrefix("/")) } else { Issue.record("file") }
     }
 
@@ -84,22 +94,22 @@ import Testing
 @Suite struct ConfigParsing {
     @Test func parsesSampleConfig() throws {
         let toml = """
-        hotkey = "alt+space"
-        [ai]
-        model = "opencode-go/deepseek-v4.1-flash"
-        [[snippet]]
-        name = "a"
-        text = "b"
-        keyword = "k"
-        [[plugin]]
-        name = "Calc"
-        exec = "plugins/calc.py"
-        prefix = "="
-        [[plugin]]
-        name = "Units"
-        exec = ["sema", "--no-llm", "plugins/units.sema", "--"]
-        env = { NOTES_DIR = "~/Notes" }
-        """
+            hotkey = "alt+space"
+            [ai]
+            model = "opencode-go/deepseek-v4.1-flash"
+            [[snippet]]
+            name = "a"
+            text = "b"
+            keyword = "k"
+            [[plugin]]
+            name = "Calc"
+            exec = "plugins/calc.py"
+            prefix = "="
+            [[plugin]]
+            name = "Units"
+            exec = ["sema", "--no-llm", "plugins/units.sema", "--"]
+            env = { NOTES_DIR = "~/Notes" }
+            """
         let c = try ConfigLoader.parse(text: toml)
         #expect(c.hotkey == "alt+space")
         #expect(c.ai.providerID == "opencode-go" && c.ai.modelID == "deepseek-v4.1-flash")
@@ -115,18 +125,20 @@ import Testing
 @Suite struct PluginPrefix {
     @MainActor @Test func prefixJumpsIntoPlugin() {
         let l = Launcher()
-        l.config.plugin = [PluginConfig(name: "Calc", exec: ["/usr/bin/true"], prefix: "="),
-                           PluginConfig(name: "Processes", exec: ["/usr/bin/true"], prefix: "ps")]
+        l.config.plugin = [
+            PluginConfig(name: "Calc", exec: ["/usr/bin/true"], prefix: "="),
+            PluginConfig(name: "Processes", exec: ["/usr/bin/true"], prefix: "ps"),
+        ]
         l.query = "= 2+2"
         #expect(l.mode == .plugin("Calc"))
         #expect(l.query == "2+2")
         l.mode = .root
         l.query = ""
-        l.query = "psst"            // no space after the prefix: ordinary search
+        l.query = "psst"  // no space after the prefix: ordinary search
         #expect(l.mode == .root)
-        l.query = "ps "             // prefix + space, empty rest
+        l.query = "ps "  // prefix + space, empty rest
         #expect(l.mode == .plugin("Processes"))
-        #expect(l.query == "")      // the field clears; the plugin runs with an empty query
+        #expect(l.query == "")  // the field clears; the plugin runs with an empty query
     }
 }
 
@@ -147,16 +159,20 @@ import Testing
     }
 
     @Test func badOutputBecomesAnErrorItem() async {
-        let p = PluginConfig(name: "Bad", exec: ["/bin/echo"])   // prints the query, not JSON
+        let p = PluginConfig(name: "Bad", exec: ["/bin/echo"])  // prints the query, not JSON
         let items = await Plugins.query(p, "not json")
         #expect(items.first?.title == "Bad failed")
     }
 
     @MainActor @Test func runActionExecutes() async throws {
         let marker = FileManager.default.temporaryDirectory.appendingPathComponent("hl-run-\(UUID().uuidString)")
-        let action = Plugins.action(Plugins.PAction(title: "Run", open: nil, copy: nil, paste: nil, run: "touch '\(marker.path)'"))
+        let action = Plugins.action(
+            Plugins.PAction(title: "Run", open: nil, copy: nil, paste: nil, run: "touch '\(marker.path)'")
+        )
         _ = action.run()
-        for _ in 0..<50 where !FileManager.default.fileExists(atPath: marker.path) { try await Task.sleep(nanoseconds: 100_000_000) }
+        for _ in 0..<50 where !FileManager.default.fileExists(atPath: marker.path) {
+            try await Task.sleep(nanoseconds: 100_000_000)
+        }
         #expect(FileManager.default.fileExists(atPath: marker.path))
         try? FileManager.default.removeItem(at: marker)
     }
