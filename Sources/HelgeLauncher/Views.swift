@@ -137,8 +137,8 @@ struct LauncherView: View {
                     .tracking(0.6)
                     .foregroundStyle(Theme.text2)
                     .padding(.horizontal, 7).frame(height: 22)
-                    .background(RoundedRectangle(cornerRadius: 6).fill(Theme.raised))
-                    .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Theme.borderStrong, lineWidth: 1))
+                    .background(RoundedRectangle(cornerRadius: Theme.radiusChip).fill(Theme.raised))
+                    .overlay(RoundedRectangle(cornerRadius: Theme.radiusChip).strokeBorder(Theme.borderStrong, lineWidth: 1))
             }
             SearchField(text: $l.query, placeholder: placeholder, focusToken: l.focusToken, onCommand: handle)
         }
@@ -290,7 +290,6 @@ struct IconView: View {
         case .file(let p): Image(nsImage: IconCache.image(p)).resizable().aspectRatio(contentMode: .fit)
         case .symbol(let s): Image(systemName: s).font(.system(size: 14, weight: .regular)).foregroundStyle(selected ? Theme.accentText : Theme.text2)
         case .emoji(let e): Text(e).font(.system(size: 19))
-        case .image(let i): Image(nsImage: i).resizable().aspectRatio(contentMode: .fit)
         case .none: Color.clear
         }
     }
@@ -309,7 +308,7 @@ struct ActionsMenu: View {
                     if i == 1 { KeyCap(key: "⌘↵") }
                 }
                 .padding(.horizontal, 10).frame(height: 32)
-                .background(RoundedRectangle(cornerRadius: 6).fill(i == l.actionIndex ? Theme.accentSoft : .clear))
+                .background(RoundedRectangle(cornerRadius: Theme.radiusChip).fill(i == l.actionIndex ? Theme.accentSoft : .clear))
                 .contentShape(Rectangle())
                 .onTapGesture { l.actionIndex = i; l.activate() }
             }
@@ -359,23 +358,16 @@ struct ChatView: View {
     }
 }
 
-extension NSImage {
-    /// Stretchable rounded-rect mask for NSVisualEffectView. Unlike a layer corner radius, this also
-    /// shapes the window shadow, so no square edge shows behind the rounded corners.
-    static func roundedMask(radius r: CGFloat) -> NSImage {
-        let d = r * 2 + 1
-        let img = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
-            NSColor.black.setFill()
-            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
-            return true
-        }
-        img.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
-        img.resizingMode = .stretch
-        return img
+/// A key cap: mono, bordered, on the darkest ground.
+struct KeyCap: View {
+    let key: String
+    var body: some View {
+        Text(key)
+            .font(Theme.mono(11, .medium))
+            .foregroundStyle(Theme.text2)
+            .padding(.horizontal, 5)
+            .frame(minWidth: 20, minHeight: 18)
+            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall).fill(Theme.ground))
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.borderStrong, lineWidth: 1))
     }
-}
-
-extension Color {
-    /// Opaque panel background (no glass).
-    static let panelFill = Theme.surface
 }

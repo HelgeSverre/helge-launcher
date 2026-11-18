@@ -140,7 +140,7 @@ final class OnePassword {
                     Launcher.shared?.toast("1Password: \(error.localizedDescription)")
                 }
             }
-            return true
+            return .stay
         }
     }
 
@@ -153,33 +153,22 @@ final class OnePassword {
 
     private func item(_ it: OPItem) -> Item {
         let id = "op:" + it.id
-        let record = { History.shared.record(id) }
         var actions: [Action] = []
         if let secret = it.category.secret {
-            actions.append(copySecret(secret.label) {
-                record()
-                return try await self.field(it.id, secret.field)
-            })
+            actions.append(copySecret(secret.label) { try await self.field(it.id, secret.field) })
         }
         if it.category.hasUsernameAndOTP {
-            actions.append(copySecret("Username") {
-                record()
-                return try await self.field(it.id, "username")
-            })
-            actions.append(copySecret("One-Time Password") {
-                record()
-                return try await self.otp(it.id)
-            })
+            actions.append(copySecret("Username") { try await self.field(it.id, "username") })
+            actions.append(copySecret("One-Time Password") { try await self.otp(it.id) })
         }
         actions.append(Action(title: "Open in 1Password") {
-            record()
             var url = "onepassword://view-item/?v=\(it.vault.id)&i=\(it.id)"
             if let a = self.accountUUID { url += "&a=\(a)" }
             NSWorkspace.shared.open(URL(string: url)!)
-            return false
+            return .close
         })
         if let href = it.website {
-            actions.append(Action(title: "Open Website") { openURL(href); return false })
+            actions.append(Action(title: "Open Website") { openURL(href); return .close })
         }
         let details = [it.additionalInformation, it.vault.name].compactMap { $0 }.filter { !$0.isEmpty }
         return Item(
@@ -189,7 +178,8 @@ final class OnePassword {
             icon: .symbol(it.category.symbol),
             keywords: (it.urls ?? []).map(\.href) + [it.additionalInformation ?? ""],
             accessory: it.category.displayName,
-            actions: actions
+            actions: actions,
+            historyKey: id
         )
     }
 }

@@ -5,8 +5,8 @@ import Testing
 @MainActor
 func item(_ id: String, log: Box<[String]>? = nil) -> Item {
     Item(id: id, title: id, actions: [
-        Action(title: "Primary") { log?.value.append("\(id).primary"); return true },
-        Action(title: "Secondary") { log?.value.append("\(id).secondary"); return true },
+        Action(title: "Primary") { log?.value.append("\(id).primary"); return .stay },
+        Action(title: "Secondary") { log?.value.append("\(id).secondary"); return .stay },
     ])
 }
 
@@ -42,6 +42,30 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         l.click(1)
         #expect(log.value == ["b.primary"])
         #expect(!l.showActions)
+    }
+
+    @Test func activationRecordsTheHistoryKeyOnly() {
+        let l = Launcher(ai: FakeAI())
+        let key = "test:\(UUID().uuidString)"
+        var keyed = item("keyed")
+        keyed.historyKey = key
+        let plain = item("plain-\(UUID().uuidString)")
+        l.setItems([keyed, plain], keepSelection: false)
+        l.activate()
+        #expect(History.shared.boost(key) > 0)
+        l.selected = 1
+        l.activate()
+        #expect(History.shared.boost(plain.id) == 0)
+    }
+
+    @Test func modeEntriesKeepTheirIds() {
+        var cfg = Config()
+        cfg.plugin = [PluginConfig(name: "Units", exec: ["x"], prefix: "u")]
+        #expect(Mode.entries(cfg).map(\.id) == ["mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "plugin:Units"])
+        cfg.ai.enabled = false
+        cfg.clipboard.enabled = false
+        cfg.onepassword.enabled = false
+        #expect(Mode.entries(cfg).map(\.id) == ["mode.emoji", "mode.snippets", "plugin:Units"])
     }
 
     @Test func duplicateIdsAreMadeUnique() {
@@ -181,7 +205,7 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         l.query = "zz x"
         #expect(l.mode == .plugin(name))
         #expect(History.shared.boost(Mode.plugin(name).itemID) > 0)
-        #expect(Plugins.entry(l.config.plugin[0]).id == Mode.plugin(name).itemID)
+        #expect(Mode.plugin(name).entry(l.config)?.id == Mode.plugin(name).itemID)
     }
 }
 

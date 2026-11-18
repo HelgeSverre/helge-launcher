@@ -83,22 +83,22 @@ final class Launcher: ObservableObject {
         if config.cleanshot.enabled { all += CleanShot.items }
         all += UserCommands.items(config.command)
         all += Snippets.items(config.snippet)
-        all += config.plugin.map(Plugins.entry)
-        if config.clipboard.enabled {
-            all.append(Item(id: Mode.clipboard.itemID, title: "Clipboard History", icon: .symbol("doc.on.clipboard"), keywords: ["paste"], accessory: "Command", opens: .clipboard))
-        }
-        all.append(Item(id: Mode.emoji.itemID, title: "Search Emoji & Symbols", icon: .symbol("face.smiling"), keywords: ["emoji"], accessory: "Command", opens: .emoji))
-        all.append(Item(id: Mode.snippets.itemID, title: "Search Snippets", icon: .symbol("text.quote"), accessory: "Command", opens: .snippets))
-        if config.onepassword.enabled {
-            all.append(Item(id: Mode.onepassword.itemID, title: "1Password", subtitle: "Search vault items", icon: .symbol("key.horizontal"), keywords: ["password", "op", "1p"], accessory: "Command", opens: .onepassword))
-        }
-        if config.ai.enabled {
-            all.append(Item(id: Mode.ai.itemID, title: "AI Chat", subtitle: config.ai.model, icon: .symbol("sparkles"), keywords: ["ask", "ai"], accessory: "Command", opens: .ai))
-        }
-        all.append(Item(id: "hl.config", title: "Edit Helge Launcher Config", icon: .symbol("gearshape"), keywords: ["settings", "preferences"], accessory: "Command",
-                        actions: [Action(title: "Open") { openURL(Paths.configFile.path); return false }]))
-        all.append(Item(id: "hl.reload", title: "Reload Helge Launcher Config", icon: .symbol("arrow.clockwise"), accessory: "Command",
-                        actions: [Action(title: "Reload") { (NSApp.delegate as? AppDelegate)?.reloadConfig(); return true }]))
+        all += Mode.entries(config)
+        all.append(Item(
+            id: "hl.config",
+            title: "Edit Helge Launcher Config",
+            icon: .symbol("gearshape"),
+            keywords: ["settings", "preferences"],
+            accessory: "Command",
+            actions: [Action(title: "Open") { openURL(Paths.configFile.path); return .close }]
+        ))
+        all.append(Item(
+            id: "hl.reload",
+            title: "Reload Helge Launcher Config",
+            icon: .symbol("arrow.clockwise"),
+            accessory: "Command",
+            actions: [Action(title: "Reload") { (NSApp.delegate as? AppDelegate)?.reloadConfig(); return .stay }]
+        ))
         return all
     }
 
@@ -108,8 +108,14 @@ final class Launcher: ObservableObject {
             var r = rank(rootItems, query: query, limit: query.isEmpty ? 9 : 40)
             let q = query.trimmingCharacters(in: .whitespaces)
             if config.ai.enabled && !q.isEmpty {
-                let ask = Item(id: "ai.ask", title: "Ask AI: \(q)", subtitle: config.ai.model, icon: .symbol("sparkles"), accessory: "Tab",
-                               actions: [Action(title: "Ask") { self.askAI(q); return true }])
+                let ask = Item(
+                    id: "ai.ask",
+                    title: "Ask AI: \(q)",
+                    subtitle: config.ai.model,
+                    icon: .symbol("sparkles"),
+                    accessory: "Tab",
+                    actions: [Action(title: "Ask") { self.askAI(q); return .stay }]
+                )
                 if r.isEmpty || r[0].score < 4 { r.insert(ask, at: 0) } else { r.append(ask) }
             }
             return r
@@ -232,15 +238,18 @@ final class Launcher: ObservableObject {
         if mode == .ai { submitAI(); return }
         guard let it = current else { return }
         if showActions {
-            let i = actionIndex
             showActions = false
-            if it.actions.indices.contains(i) { finish(it.actions[i].run()) }
+            run(it, action: actionIndex)
             return
         }
         if let m = it.opens { enter(m); return }
-        let idx = secondary ? 1 : 0
-        guard it.actions.indices.contains(idx) else { return }
-        finish(it.actions[idx].run())
+        run(it, action: secondary ? 1 : 0)
+    }
+
+    private func run(_ it: Item, action index: Int) {
+        guard it.actions.indices.contains(index) else { return }
+        if let key = it.historyKey { History.shared.record(key) }
+        finish(it.actions[index].run())
     }
 
     func click(_ index: Int) {
@@ -249,8 +258,11 @@ final class Launcher: ObservableObject {
         activate()
     }
 
-    private func finish(_ keepOpen: Bool) {
-        if keepOpen { setItems(computeItems(), keepSelection: true) } else { hide() }
+    private func finish(_ outcome: Action.Outcome) {
+        switch outcome {
+        case .stay: setItems(computeItems(), keepSelection: true)
+        case .close: hide()
+        }
     }
 
     func toggleActions() {

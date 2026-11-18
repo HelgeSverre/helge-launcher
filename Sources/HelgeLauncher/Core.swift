@@ -2,28 +2,45 @@ import AppKit
 import Carbon
 
 enum ItemIcon {
-    case file(String)          // icon of a file/app path
-    case symbol(String)        // SF Symbol name
+    /// The file's or app's own icon.
+    case file(String)
+    case symbol(String)
     case emoji(String)
-    case image(NSImage)
     case none
+
+    /// Config and plugin icon strings: a path (`/…` or `~/…`), an SF Symbol name (lowercase
+    /// letters, digits and dots), or otherwise text such as an emoji.
+    init(spec: String) {
+        if spec.hasPrefix("/") || spec.hasPrefix("~") {
+            self = .file(NSString(string: spec).expandingTildeInPath)
+        } else if spec.range(of: "^[a-z0-9.]+$", options: .regularExpression) != nil {
+            self = .symbol(spec)
+        } else {
+            self = .emoji(spec)
+        }
+    }
 }
 
 struct Action {
+    enum Outcome {
+        /// Hide the panel.
+        case close
+        /// Keep the panel open and refresh the list.
+        case stay
+    }
+
     var title: String
     /// What the action does, for headless listings (e.g. "open https://…").
-    var detail: String = ""
-    /// Return true to keep the panel open after running.
-    var run: @MainActor () -> Bool
+    var detail = ""
+    var run: @MainActor () -> Outcome
 
-    init(title: String, detail: String = "", run: @escaping @MainActor () -> Bool) {
+    init(title: String, detail: String = "", run: @escaping @MainActor () -> Outcome) {
         self.title = title
         self.detail = detail
         self.run = run
     }
 }
 
-/// Where the panel goes when an item is chosen.
 enum Mode: Equatable {
     case root
     case clipboard
@@ -46,6 +63,7 @@ enum Mode: Equatable {
         }
     }
 
+    /// Badge in the search field.
     var title: String {
         switch self {
         case .root: return ""
@@ -54,7 +72,54 @@ enum Mode: Equatable {
         case .snippets: return "Snippets"
         case .onepassword: return "1Password"
         case .ai: return "AI"
-        case .plugin(let n): return n
+        case .plugin(let name): return name
+        }
+    }
+
+    /// Root-list entries for every mode the config enables.
+    static func entries(_ config: Config) -> [Item] {
+        let modes: [Mode] = [.clipboard, .emoji, .snippets, .onepassword, .ai] + config.plugin.map { .plugin($0.name) }
+        return modes.compactMap { $0.entry(config) }
+    }
+
+    /// The root-list item that opens this mode, or nil when the config disables it.
+    func entry(_ config: Config) -> Item? {
+        func item(_ title: String, _ symbol: String, subtitle: String = "", keywords: [String] = []) -> Item {
+            Item(
+                id: itemID,
+                title: title,
+                subtitle: subtitle,
+                icon: .symbol(symbol),
+                keywords: keywords,
+                accessory: "Command",
+                opens: self
+            )
+        }
+        switch self {
+        case .root:
+            return nil
+        case .clipboard:
+            return config.clipboard.enabled ? item("Clipboard History", "doc.on.clipboard", keywords: ["paste"]) : nil
+        case .emoji:
+            return item("Search Emoji & Symbols", "face.smiling", keywords: ["emoji"])
+        case .snippets:
+            return item("Search Snippets", "text.quote")
+        case .onepassword:
+            guard config.onepassword.enabled else { return nil }
+            return item("1Password", "key.horizontal", subtitle: "Search vault items", keywords: ["password", "op", "1p"])
+        case .ai:
+            return config.ai.enabled ? item("AI Chat", "sparkles", subtitle: config.ai.model, keywords: ["ask", "ai"]) : nil
+        case .plugin(let name):
+            guard let p = config.plugin.first(where: { $0.name == name }) else { return nil }
+            return Item(
+                id: itemID,
+                title: p.name,
+                subtitle: p.prefix.map { "\($0) …" } ?? "",
+                icon: ItemIcon(spec: p.icon ?? "puzzlepiece.extension"),
+                keywords: [p.prefix].compactMap { $0 },
+                accessory: "Plugin",
+                opens: self
+            )
         }
     }
 }
@@ -62,15 +127,17 @@ enum Mode: Equatable {
 struct Item: Identifiable {
     var id: String
     var title: String
-    var subtitle: String = ""
-    var icon: ItemIcon = .none
+    var subtitle = ""
+    var icon = ItemIcon.none
     var keywords: [String] = []
-    var accessory: String = ""
-    /// actions[0] runs on ↵, actions[1] on ⌘↵.
+    var accessory = ""
+    /// `actions[0]` runs on ↵, `actions[1]` on ⌘↵, all are listed under ⌘K.
     var actions: [Action] = []
-    /// Opens a sub-mode instead of running an action.
-    var opens: Mode? = nil
-    var preview: String? = nil
+    /// Opens a mode instead of running an action.
+    var opens: Mode?
+    var preview: String?
+    /// Frecency key recorded when one of the item's actions runs; nil records nothing.
+    var historyKey: String?
     var score: Double = 0
 }
 
@@ -151,7 +218,7 @@ final class History {
     }
 }
 
-func rank(_ items: [Item], query: String, limit: Int = 60) -> [Item] {
+func rank(_ items: [Item], query: String, limit: Int) -> [Item] {
     let q = query.trimmingCharacters(in: .whitespaces)
     var out: [Item] = []
     for var it in items {

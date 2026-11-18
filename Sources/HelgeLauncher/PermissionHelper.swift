@@ -149,7 +149,7 @@ private struct HelperView: View {
         .padding(.leading, 12)
         .padding(.trailing, 14)
         .fixedSize()
-        .background(Color.panelFill)
+        .background(Theme.surface)
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.border, lineWidth: 1))
     }
 }

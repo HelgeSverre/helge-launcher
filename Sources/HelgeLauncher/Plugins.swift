@@ -23,11 +23,6 @@ enum Plugins {
         let run: String?
     }
 
-    static func entry(_ p: PluginConfig) -> Item {
-        Item(id: Mode.plugin(p.name).itemID, title: p.name, subtitle: p.prefix.map { "\($0) …" } ?? "", icon: icon(p.icon ?? "puzzlepiece.extension"),
-             keywords: [p.prefix].compactMap { $0 }, accessory: "Plugin", opens: .plugin(p.name))
-    }
-
     static func query(_ p: PluginConfig, _ q: String) async -> [Item] {
         do {
             // A lone path may use ~; everything runs from the config directory so relative paths work.
@@ -41,7 +36,7 @@ enum Plugins {
             let out = try JSONDecoder().decode(Output.self, from: data)
             return out.items.enumerated().map { i, it in
                 Item(id: "plugin:\(p.name):\(it.id ?? "\(i):\(it.title)")", title: it.title, subtitle: it.subtitle ?? "",
-                     icon: icon(it.icon ?? p.icon ?? "circle"), accessory: it.accessory ?? "",
+                     icon: ItemIcon(spec: it.icon ?? p.icon ?? "circle"), accessory: it.accessory ?? "",
                      actions: (it.actions ?? []).map(action))
             }
         } catch {
@@ -57,13 +52,8 @@ enum Plugins {
             if let c = a.copy { Pasteboard.copy(c) }
             if let p = a.paste { Pasteboard.paste(p) }
             if let r = a.run { Shell.spawn(r) }
-            return false
+            return .close
         }
     }
 
-    static func icon(_ s: String) -> ItemIcon {
-        if s.hasPrefix("/") || s.hasPrefix("~") { return .file(NSString(string: s).expandingTildeInPath) }
-        if s.unicodeScalars.first?.properties.isEmojiPresentation == true { return .emoji(s) }
-        return .symbol(s)
-    }
 }

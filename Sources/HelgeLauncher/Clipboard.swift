@@ -227,20 +227,20 @@ final class ClipboardHistory {
                     Action(title: "Paste") {
                         guard self.restore(e) else {
                             Launcher.shared?.toast("Image no longer available")
-                            return true
+                            return .stay
                         }
                         Pasteboard.pasteCurrent()
-                        return false
+                        return .close
                     },
                     Action(title: "Copy") {
                         guard self.restore(e) else {
                             Launcher.shared?.toast("Image no longer available")
-                            return true
+                            return .stay
                         }
-                        return false
+                        return .close
                     },
-                    Action(title: e.pinned ? "Unpin" : "Pin") { self.togglePin(e.id); return true },
-                    Action(title: "Delete") { self.delete(e.id); return true },
+                    Action(title: e.pinned ? "Unpin" : "Pin") { self.togglePin(e.id); return .stay },
+                    Action(title: "Delete") { self.delete(e.id); return .stay },
                 ],
                 preview: e.kind == .image ? nil : e.text)
         }

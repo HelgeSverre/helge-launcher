@@ -9,7 +9,7 @@ import Testing
         let df = DateFormatter(); df.locale = Locale(identifier: "en_US_POSIX"); df.dateFormat = f
         return df.string(from: now)
     }
-    func expand(_ s: String) -> String { Snippets.placeholders(s, now: now, clipboard: { "CLIP" }) }
+    func expand(_ s: String) -> String { Placeholders.expand(s, now: now, clipboard: { "CLIP" }) }
 
     @Test func dateAndTime() {
         #expect(expand("{date}") == local("yyyy-MM-dd"))
@@ -65,10 +65,19 @@ import Testing
         #expect(Plugins.action(out.items[0].actions![0]).detail == "open https://x")
     }
 
+    @Test func iconSpecs() {
+        for e in ["❤️", "⌘", "👨‍👩‍👧", "🚀"] {
+            if case .emoji(e) = ItemIcon(spec: e) {} else { Issue.record("\(e) should be text") }
+        }
+        if case .symbol("gearshape") = ItemIcon(spec: "gearshape") {} else { Issue.record("symbol") }
+        if case .symbol("square.and.arrow.up") = ItemIcon(spec: "square.and.arrow.up") {} else { Issue.record("dotted symbol") }
+        if case .file(let p) = ItemIcon(spec: "~/a.png") { #expect(p.hasPrefix("/")) } else { Issue.record("file") }
+    }
+
     @Test func iconKinds() {
-        if case .symbol("star") = Plugins.icon("star") {} else { Issue.record("symbol") }
-        if case .emoji("🚀") = Plugins.icon("🚀") {} else { Issue.record("emoji") }
-        if case .file = Plugins.icon("~/x.png") {} else { Issue.record("file") }
+        if case .symbol("star") = ItemIcon(spec: "star") {} else { Issue.record("symbol") }
+        if case .emoji("🚀") = ItemIcon(spec: "🚀") {} else { Issue.record("emoji") }
+        if case .file = ItemIcon(spec: "~/x.png") {} else { Issue.record("file") }
     }
 }
 

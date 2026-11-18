@@ -16,22 +16,20 @@ enum Theme {
     static let surface = dynamic(0x111113, 0xFFFFFF)       // panel
     static let soft = dynamic(0x161718, 0xF7F7F3)          // footer, preview pane
     static let raised = dynamic(0x1B1C1F, 0xF2F2EE)        // menus, badges
-    static let hover = dynamic(0x202127, 0xECECE6)
     static let border = dynamic(0x222326, 0xE2E2DC)
     static let borderStrong = dynamic(0x2E3035, 0xC9C9C2)
     static let text = dynamic(0xE6E6E6, 0x18181B)
     static let text2 = dynamic(0xA0A3A8, 0x5C5C63)
     static let muted = dynamic(0x6B6F76, 0x6E6E75)
-    static let accent = dynamic(0xFACC15, 0xFACC15)
-    static let accentText = dynamic(0xFACC15, 0x7A5C00)    // yellow used as text/icon; dark gold on light
-    static let accentSoft = dynamic(0xFACC15, 0xFACC15, darkAlpha: 0.12, lightAlpha: 0.22)
+    static let accentText = dynamic(accentHex, 0x7A5C00)    // yellow used as text/icon; dark gold on light
+    static let accentSoft = dynamic(accentHex, accentHex, darkAlpha: 0.12, lightAlpha: 0.22)
     static let warn = dynamic(0xEAB308, 0xA9520C)
     static let err = dynamic(0xEF4444, 0xB83434)
-    static let ok = dynamic(0x22C55E, 0x1F7A47)
 
     static let panelSize = NSSize(width: 760, height: 480)
     static let radiusPanel: CGFloat = 12
     static let radiusRow: CGFloat = 8
+    static let radiusChip: CGFloat = 6
     static let radiusSmall: CGFloat = 4
 
     static func sans(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
@@ -49,7 +47,9 @@ enum Theme {
         return NSFont(descriptor: desc, size: size).flatMap { $0.familyName == "Inter" ? $0 : nil } ?? base
     }
 
-    static var nsAccent: NSColor { NSColor(hex: 0xFACC15) }
+    /// Text cursor colour.
+    static let nsAccent = NSColor(hex: accentHex)
+    private static let accentHex: UInt32 = 0xFACC15
 }
 
 extension NSColor {
@@ -59,24 +59,26 @@ extension NSColor {
     }
 }
 
-/// A key cap: mono, bordered, on the darkest ground.
-struct KeyCap: View {
-    let key: String
-    var body: some View {
-        Text(key)
-            .font(Theme.mono(11, .medium))
-            .foregroundStyle(Theme.text2)
-            .padding(.horizontal, 5)
-            .frame(minWidth: 20, minHeight: 18)
-            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall).fill(Theme.ground))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.borderStrong, lineWidth: 1))
-    }
-}
-
 extension View {
     /// Panel background and hairline border.
     func framedPanel() -> some View {
         background(Theme.surface)
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.border, lineWidth: 1))
+    }
+}
+
+extension NSImage {
+    /// Stretchable rounded-rect mask for NSVisualEffectView. Unlike a layer corner radius, this also
+    /// shapes the window shadow, so no square edge shows behind the rounded corners.
+    static func roundedMask(radius r: CGFloat) -> NSImage {
+        let d = r * 2 + 1
+        let img = NSImage(size: NSSize(width: d, height: d), flipped: false) { rect in
+            NSColor.black.setFill()
+            NSBezierPath(roundedRect: rect, xRadius: r, yRadius: r).fill()
+            return true
+        }
+        img.capInsets = NSEdgeInsets(top: r, left: r, bottom: r, right: r)
+        img.resizingMode = .stretch
+        return img
     }
 }
