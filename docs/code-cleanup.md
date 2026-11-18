@@ -15,7 +15,7 @@
 | Gate | Source | Command | Artifact | Baseline |
 |---|---|---|---|---|
 | G1 debug build | CI, justfile | `swift build` | `.build/debug/HelgeLauncher` | pass (sha256 `10cd6d12…`) |
-| G2 tests | CI `Run tests`, justfile | `swift test` | test bundle, debug | baseline 13 pass; A9 65 pass ×3; pasteboard snapshot restores the clipboard |
+| G2 tests | CI `Run tests`, justfile | `swift test` | test bundle, debug | baseline 13 pass; A10 67 pass ×3; pasteboard snapshot restores the clipboard (types in order) |
 | G3 release bundle | `scripts/bundle.sh` | `just bundle` | `build/Helge Launcher.app` (native, Developer ID signed) | pass |
 | G4 universal signed | `scripts/release.sh --no-notarize` | `just package` | `dist/HelgeLauncher-<v>-universal.zip` | pass at 3a68570 |
 | G5 headless plugins | docs/plugins.md | `HL_CONFIG_DIR=… --plugin <name>` for the 7 examples | debug binary | pass |
@@ -53,9 +53,9 @@ Status refers to the current head unless a revision is named. "Verified" = fix r
 | I6 | medium | M5 mutable state on a non-isolated class | TSan races on `loading`/`cached` at baseline | `@MainActor`, shared refresh task | OnePasswordTests (1); G7 TSan clean | verified c01dcc4 |
 | I7 | medium | M8 watcher only learned files from a successful load; stamps taken after parsing | broken/missing include never reloaded after fixing; a save during load was missed | `Loaded.stamps` (taken before each read) on every load; watcher reset before the early return | ConfigLoadTests (3); watcher wiring reviewed, not unit-tested | verified d54bdcf (Verify 2); code unchanged since |
 | I8 | medium | M11 recorded modes under `"mode.\(Mode)"` | plugins never gained frecency | `Mode.itemID` shared by root items and `enter` | LauncherSelectionTests.enteringAPluginRecordsItsListId | verified 52d0cf9 |
-| I9 | low | M7 images keyed by fresh UUIDs; delete leaked files; corrupt history deleted every image | same image ×5 → 5 files; deleted images stayed on disk | content-hash names, `remove` deletes unreferenced files, missing image on restore drops the entry, an unreadable history moves in one step to its own `clipboard.json.corrupt-<time>` (cleanup stays off while any exists; if the move fails the history is never saved over), cleanup only in the app's poller | PasteboardTests: dedupe (mutation-checked), missing image, corrupt history across two launches, max_items | redesigned in A9; Verify 5 pending |
+| I9 | low | M7 images keyed by fresh UUIDs; delete leaked files; corrupt history deleted every image | same image ×5 → 5 files; deleted images stayed on disk | content-hash names, `remove` deletes unreferenced files, missing image on restore drops the entry, an unreadable history moves in one step to its own `clipboard.json.corrupt-<time>` (cleanup stays off while any exists; if the move fails the history is never saved over), cleanup only in the app's poller | PasteboardTests: dedupe (mutation-checked), missing image, corrupt history across two launches, max_items | repaired again in A10 (45eee1d); Verify 6 pending |
 | I10 | low | M10 menu item refreshed only at launch/helper | "Grant Accessibility…" stayed after granting elsewhere | refresh on `menuWillOpen` | manual only | implemented 1e7c501, not unit-tested |
-| I11 | low (docs) | M12 `show?q=` kept AI mode; URL `ai` ignored `enabled`; busy `ai?q=` dropped the question | | `show(query:)` → root; `openAIChat` gated; busy keeps the question | LauncherSelectionTests | redesigned in A9; Verify 5 pending |
+| I11 | low (docs) | M12 `show?q=` kept AI mode; URL `ai` ignored `enabled`; busy `ai?q=` dropped the question | | `show(query:)` → root; `openAIChat` gated; busy keeps the question | LauncherSelectionTests | repaired again in A10 (45eee1d); Verify 6 pending |
 | I12 | medium | M8 default config includes `snippets.toml`, absent on a new install | fresh install showed a config error, then (after A5) a permanent warning | missing include counts as empty with a warning; first launch writes an empty `snippets.toml` | ConfigLoadTests.missingConfigIsCreatedWithDefaults | verified d54bdcf (Verify 2); code unchanged since |
 
 ### Hypotheses (not confirmed)
@@ -83,6 +83,7 @@ Status refers to the current head unless a revision is named. "Verified" = fix r
 | A7 | 7cd7eab | Verify 2 repairs |
 | A8 | 869ccd0 | Verify 3 repairs |
 | A9 | 66b9118 | Verify 4 repairs: clipboard set-aside redesign, busy ask keeps drafts, empty question, full pasteboard snapshot in tests |
+| A10 | 45eee1d | Verify 5 repairs: one askAI draft rule, `remove` keeps images while a set-aside exists, can't-move test made able to fail, ordered pasteboard snapshot |
 
 ## Round log
 
@@ -95,4 +96,5 @@ Status refers to the current head unless a revision is named. "Verified" = fix r
 | A-Verify 2 | d54bdcf (delta from 3351017) | config/clipboard (reviewer 1) · AI reconnect + Launcher (reviewer 3) · Shell fd + document audit (reviewer 2) | corrupt-history protection lasted one launch (found twice); busy-question fix could jump into a plugin; document test counts/statuses/representations wrong → repaired in A7. AI reconnect, Shell fd fix, default snippets file: no defects |
 | A-Verify 3 | 7cd7eab (delta from d54bdcf) | clipboard (reviewer 2) · askAI (reviewer 1) · Shell timeout + document (reviewer 3) | corrupt-history test changed the pasteboard and could delete real images under HL_DATA_DIR; interrupted set-aside unprotected; URL ask while busy from root lost the question; document I3/I4/M4/M7 wrong → repaired in A8. Shell timeout: no defects; closing read handles on exit removed as a crash risk |
 | A-Verify 4 | 9541a1f (delta from 7cd7eab) | clipboard (reviewer 1) · askAI (reviewer 3) · Shell read handles + document (reviewer 2) | URL question replaced a draft; empty URL question sent; both-files set-aside case overwrote a new corrupt history; 5 false statuses → repaired in A9 (set-aside redesigned to one timestamped move + no-save on failure). Shell read handles: descriptors released on all paths, no defects |
+| A-Verify 5 | 036857e (delta from 9541a1f) | clipboard (reviewer 3) · askAI (reviewer 1) · test helpers + document (reviewer 2) | idle URL ask cleared a draft; newline-only question sent; `remove` deleted set-aside images; can't-move test couldn't fail; snapshot lost type order → repaired in A10. Document statuses: all correct |
 
