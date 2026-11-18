@@ -138,6 +138,17 @@ final class Launcher: ObservableObject {
             }
         case .ai:
             break
+        case .root:
+            // "<prefix> <query>" jumps straight into a plugin with the rest as its query.
+            if let p = config.plugin.first(where: { p in p.prefix.map { query.hasPrefix($0 + " ") } ?? false }), let prefix = p.prefix {
+                let rest = String(query.dropFirst(prefix.count + 1))
+                mode = .plugin(p.name)
+                items = []
+                query = rest   // always differs from "<prefix> <rest>", so this re-runs queryChanged in plugin mode
+                focusToken += 1
+                return
+            }
+            refresh()
         default:
             refresh()
         }

@@ -36,6 +36,9 @@ jobs:
             git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::tag is not on main"; exit 1; }
           fi
 
+      - name: Run tests
+        run: swift test
+
       - name: Import signing credentials
         env:
           APPLE_APPLICATION_CERTIFICATE_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_BASE64 }}

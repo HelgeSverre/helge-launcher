@@ -124,12 +124,43 @@ struct SnippetConfig: Decodable {
     var keyword: String?
 }
 
-/// An external program speaking the JSON plugin protocol (see README).
+/// An external program speaking the JSON plugin protocol (docs/plugins.md).
+/// `exec` is a path (`"plugins/x.sh"`) or an argument list (`["sema", "plugins/x.sema", "--"]`);
+/// the query is appended as the last argument. Relative paths resolve against the config directory.
 struct PluginConfig: Decodable {
     var name: String
-    var exec: String
+    var exec: [String]
     var prefix: String?
     var icon: String?
+    /// Extra environment variables (values may start with ~). The launcher runs outside your
+    /// shell, so variables from ~/.zshrc are not visible to plugins unless set here.
+    var env: [String: String] = [:]
+
+    enum CodingKeys: String, CodingKey { case name, exec, prefix, icon, env }
+
+    init(name: String, exec: String, prefix: String? = nil, icon: String? = nil, env: [String: String] = [:]) {
+        self.name = name
+        self.exec = [exec]
+        self.prefix = prefix
+        self.icon = icon
+        self.env = env
+    }
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        name = try c.decode(String.self, forKey: .name)
+        if let list = try? c.decode([String].self, forKey: .exec) {
+            exec = list
+        } else {
+            exec = [try c.decode(String.self, forKey: .exec)]
+        }
+        guard !exec.isEmpty, !exec[0].isEmpty else {
+            throw DecodingError.dataCorruptedError(forKey: .exec, in: c, debugDescription: "plugin \(name): exec is empty")
+        }
+        prefix = try c.decodeIfPresent(String.self, forKey: .prefix)
+        icon = try c.decodeIfPresent(String.self, forKey: .icon)
+        env = try c.decodeIfPresent([String: String].self, forKey: .env) ?? [:]
+    }
 }
 
 struct DynKey: CodingKey {
@@ -141,7 +172,8 @@ struct DynKey: CodingKey {
 }
 
 enum Paths {
-    static let configDir = URL(fileURLWithPath: NSString(string: "~/.config/hl").expandingTildeInPath)
+    /// `~/.config/hl`, or `$HL_CONFIG_DIR` (handy for trying a config or a plugin in isolation).
+    static let configDir = URL(fileURLWithPath: NSString(string: ProcessInfo.processInfo.environment["HL_CONFIG_DIR"] ?? "~/.config/hl").expandingTildeInPath)
     static let configFile = configDir.appendingPathComponent("config.toml")
     static let pluginDir = configDir.appendingPathComponent("plugins")
     static let supportDir: URL = {
@@ -201,7 +233,7 @@ enum ConfigLoader {
         }
     }
 
-    private static func parse(_ url: URL) throws -> Config {
+    static func parse(_ url: URL) throws -> Config {
         let text = try String(contentsOf: url, encoding: .utf8)
         do {
             return try TOMLDecoder().decode(Config.self, from: text)
@@ -237,4 +269,9 @@ final class ConfigWatcher {
         }
         return d
     }
+}
+
+/// Parses config TOML from a string (used by tests and `parse`).
+enum TOMLDecoderShim {
+    static func decode(_ text: String) throws -> Config { try TOMLDecoder().decode(Config.self, from: text) }
 }

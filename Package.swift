@@ -14,5 +14,10 @@ let package = Package(
             swiftSettings: [.swiftLanguageMode(.v5)],
             linkerSettings: [.linkedFramework("Carbon")]
         ),
+        .testTarget(
+            name: "HelgeLauncherTests",
+            dependencies: ["HelgeLauncher"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
     ]
 )

@@ -161,19 +161,51 @@ enum Emoji {
 // MARK: - Snippets
 
 enum Snippets {
-    /// nil when an op:// reference could not be read (the reference itself is never pasted).
+    /// Replaces `{name}` and `{date:FORMAT}` placeholders. Unknown placeholders are left as written.
+    static func placeholders(_ text: String, now: Date = Date(), clipboard: () -> String = { NSPasteboard.general.string(forType: .string) ?? "" }) -> String {
+        guard text.contains("{") else { return text }
+        func fmt(_ pattern: String) -> String {
+            let df = DateFormatter()
+            df.locale = Locale(identifier: "en_US_POSIX")
+            df.dateFormat = pattern
+            return df.string(from: now)
+        }
+        let regex = try! NSRegularExpression(pattern: "\\{([a-z]+)(?::([^}]*))?\\}")
+        let ns = text as NSString
+        var out = ""
+        var last = 0
+        for m in regex.matches(in: text, range: NSRange(location: 0, length: ns.length)) {
+            out += ns.substring(with: NSRange(location: last, length: m.range.location - last))
+            let name = ns.substring(with: m.range(at: 1))
+            let arg = m.range(at: 2).location != NSNotFound ? ns.substring(with: m.range(at: 2)) : nil
+            let value: String?
+            switch (name, arg) {
+            case ("date", nil): value = fmt("yyyy-MM-dd")
+            case ("date", let f?): value = fmt(f)
+            case ("time", nil): value = fmt("HH:mm")
+            case ("datetime", nil): value = fmt("yyyy-MM-dd HH:mm")
+            case ("iso", nil): value = ISO8601DateFormatter.string(from: now, timeZone: .current, formatOptions: [.withInternetDateTime])
+            case ("weekday", nil): value = fmt("EEEE")
+            case ("timestamp", nil): value = String(Int(now.timeIntervalSince1970))
+            case ("uuid", nil): value = UUID().uuidString.lowercased()
+            case ("clipboard", nil): value = clipboard()
+            default: value = nil
+            }
+            out += value ?? ns.substring(with: m.range)
+            last = m.range.location + m.range.length
+        }
+        out += ns.substring(from: last)
+        return out
+    }
+
+    /// Placeholders, then a whole-text op:// reference is read from 1Password.
+    /// nil when the reference could not be read (the reference itself is never pasted).
     @MainActor static func expand(_ text: String) async -> String? {
-        var t = text
-        let df = DateFormatter()
-        df.dateFormat = "yyyy-MM-dd"
-        t = t.replacingOccurrences(of: "{date}", with: df.string(from: Date()))
-        df.dateFormat = "HH:mm"
-        t = t.replacingOccurrences(of: "{time}", with: df.string(from: Date()))
-        t = t.replacingOccurrences(of: "{clipboard}", with: NSPasteboard.general.string(forType: .string) ?? "")
-        // A snippet that is exactly an op:// reference is read from 1Password at use time.
+        var t = placeholders(text)
         if t.hasPrefix("op://"), !t.contains("\n") {
             do { t = try await OnePassword.shared.read(t) } catch {
                 Launcher.shared?.toast("1Password: \(error.localizedDescription)")
+                NSLog("Helge Launcher snippet: 1Password read failed: %@", error.localizedDescription)
                 return nil
             }
         }

@@ -10,8 +10,16 @@ enum ItemIcon {
 
 struct Action {
     var title: String
+    /// What the action does, for headless listings (e.g. "open https://…").
+    var detail: String = ""
     /// Return true to keep the panel open after running.
     var run: @MainActor () -> Bool
+
+    init(title: String, detail: String = "", run: @escaping @MainActor () -> Bool) {
+        self.title = title
+        self.detail = detail
+        self.run = run
+    }
 }
 
 /// Where the panel goes when an item is chosen.
@@ -149,12 +157,13 @@ func rank(_ items: [Item], query: String, limit: Int = 60) -> [Item] {
 
 enum Shell {
     /// Runs a program and returns stdout. Throws with stderr on non-zero exit.
-    static func run(_ launchPath: String, _ args: [String], stdin: Data? = nil, env: [String: String] = [:], unset: [String] = [], timeout: TimeInterval = 30) async throws -> Data {
+    static func run(_ launchPath: String, _ args: [String], stdin: Data? = nil, env: [String: String] = [:], unset: [String] = [], cwd: URL? = nil, timeout: TimeInterval = 30) async throws -> Data {
         try await withCheckedThrowingContinuation { cont in
             DispatchQueue.global().async {
                 let p = Process()
                 p.executableURL = URL(fileURLWithPath: "/usr/bin/env")
                 p.arguments = [launchPath] + args
+                if let cwd { p.currentDirectoryURL = cwd }
                 var e = ProcessInfo.processInfo.environment
                 e["PATH"] = Shell.path
                 for (k, v) in env { e[k] = v }
@@ -167,7 +176,8 @@ enum Shell {
                 do { try p.run() } catch { cont.resume(throwing: error); return }
                 if let stdin { inp.fileHandleForWriting.write(stdin) }
                 try? inp.fileHandleForWriting.close()
-                let killer = DispatchWorkItem { if p.isRunning { p.terminate() } }
+                var timedOut = false
+                let killer = DispatchWorkItem { if p.isRunning { timedOut = true; p.terminate() } }
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout, execute: killer)
                 let data = out.fileHandleForReading.readDataToEndOfFile()
                 let errData = err.fileHandleForReading.readDataToEndOfFile()
@@ -176,7 +186,8 @@ enum Shell {
                 if p.terminationStatus == 0 {
                     cont.resume(returning: data)
                 } else {
-                    let msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    var msg = String(data: errData, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+                    if timedOut { msg = "\((launchPath as NSString).lastPathComponent) timed out after \(Int(timeout))s" }
                     cont.resume(throwing: NSError(domain: launchPath, code: Int(p.terminationStatus), userInfo: [NSLocalizedDescriptionKey: msg.isEmpty ? "exit \(p.terminationStatus)" : msg]))
                 }
             }

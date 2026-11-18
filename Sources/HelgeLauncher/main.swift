@@ -72,8 +72,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
+    private var hasGoodConfig = false
+
     func reloadConfig() {
         let (cfg, err) = ConfigLoader.load()
+        // A broken edit keeps the last good config running; the error shows in the footer and menu.
+        if let err, hasGoodConfig {
+            launcher.configError = err
+            statusItem.menu?.item(withTag: 1)?.title = "Config: \(err)"
+            NSLog("Helge Launcher config: %@ (keeping the previous config)", err)
+            return
+        }
+        hasGoodConfig = hasGoodConfig || err == nil
         launcher.config = cfg
         launcher.configError = err
         ClipboardHistory.shared.config = cfg.clipboard
@@ -186,6 +196,22 @@ func runCLI(_ args: [String]) async -> Int32 {
     OnePassword.shared.config = cfg.onepassword
     OpenCode.shared.config = cfg.ai
 
+    if let text = arg("--expand") {
+        guard let v = await Snippets.expand(text) else { print("error: could not expand"); return 1 }
+        print(v)
+        return 0
+    }
+
+    if let name = arg("--plugin") {
+        guard let p = cfg.plugin.first(where: { $0.name == name }) else { print("no plugin named \(name) in config"); return 1 }
+        let items = await Plugins.query(p, arg("--search") ?? "")
+        for it in items {
+            print("\(it.title)\(it.subtitle.isEmpty ? "" : "  — \(it.subtitle)")\(it.accessory.isEmpty ? "" : "  [\(it.accessory)]")")
+            for a in it.actions { print("    · \(a.title)\(a.detail.isEmpty ? "" : ": \(a.detail)")") }
+        }
+        return 0
+    }
+
     if let q = arg("--ai") {
         do {
             let sid = try await OpenCode.shared.createSession()
@@ -242,7 +268,7 @@ if let i = args.firstIndex(of: "--render-helper"), i + 1 < args.count {
     await MainActor.run { PermissionHelper.shared.renderPreview(to: args[i + 1]) }
     exit(0)
 }
-if args.contains("--search") || args.contains("--ai") || args.contains("--mode") {
+if ["--search", "--ai", "--mode", "--plugin", "--expand"].contains(where: args.contains) {
     let code = await runCLI(args)
     exit(code)
 }
