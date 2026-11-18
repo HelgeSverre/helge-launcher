@@ -85,7 +85,7 @@ Status refers to the current head unless a revision is named. "Verified" = fix r
 | A8 | 869ccd0 | Verify 3 repairs |
 | A9 | 66b9118 | Verify 4 repairs: clipboard set-aside redesign, busy ask keeps drafts, empty question, full pasteboard snapshot in tests |
 | A10 | 45eee1d | Verify 5 repairs: one askAI draft rule, `remove` keeps images while a set-aside exists, can't-move test made able to fail, ordered pasteboard snapshot |
-| A11 | (this commit) | Verify 6 repairs: `Pasteboard.board` (private named pasteboard under test runners; tests no longer touch the user's clipboard or each other), condition wait in the plugin results test |
+| A11 | 1cf20a6 | Verify 6 repairs: `Pasteboard.board` (private named pasteboard under test runners; tests no longer touch the user's clipboard or each other), condition wait in the plugin results test |
 
 ## Round log
 
