@@ -24,7 +24,7 @@ enum Plugins {
     }
 
     static func entry(_ p: PluginConfig) -> Item {
-        Item(id: "plugin:" + p.name, title: p.name, subtitle: p.prefix.map { "\($0) …" } ?? "", icon: icon(p.icon ?? "puzzlepiece.extension"),
+        Item(id: Mode.plugin(p.name).itemID, title: p.name, subtitle: p.prefix.map { "\($0) …" } ?? "", icon: icon(p.icon ?? "puzzlepiece.extension"),
              keywords: [p.prefix].compactMap { $0 }, accessory: "Plugin", opens: .plugin(p.name))
     }
 

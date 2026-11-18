@@ -176,9 +176,19 @@ enum Paths {
     static let configDir = URL(fileURLWithPath: NSString(string: ProcessInfo.processInfo.environment["HL_CONFIG_DIR"] ?? "~/.config/hl").expandingTildeInPath)
     static let configFile = configDir.appendingPathComponent("config.toml")
     static let pluginDir = configDir.appendingPathComponent("plugins")
+    /// History, clipboard and AI working directory: `$HL_DATA_DIR`, a temporary directory under test
+    /// runners, else `~/Library/Application Support/HelgeLauncher`.
     static let supportDir: URL = {
-        let u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
-            .appendingPathComponent("HelgeLauncher")
+        let env = ProcessInfo.processInfo.environment
+        let u: URL
+        if let dir = env["HL_DATA_DIR"] {
+            u = URL(fileURLWithPath: NSString(string: dir).expandingTildeInPath)
+        } else if ["swiftpm-testing-helper", "xctest"].contains(ProcessInfo.processInfo.processName) {
+            u = FileManager.default.temporaryDirectory.appendingPathComponent("HelgeLauncherTests-\(getpid())")
+        } else {
+            u = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+                .appendingPathComponent("HelgeLauncher")
+        }
         try? FileManager.default.createDirectory(at: u, withIntermediateDirectories: true)
         return u
     }()

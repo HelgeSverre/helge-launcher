@@ -180,7 +180,7 @@ struct LauncherView: View {
                             Row(item: it, selected: i == l.selected)
                                 .id(it.id)
                                 .contentShape(Rectangle())
-                                .onTapGesture { l.selected = i; l.activate() }
+                                .onTapGesture { l.click(i) }
                         }
                     }
                     .padding(6)

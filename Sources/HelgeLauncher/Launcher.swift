@@ -7,7 +7,10 @@ final class Launcher: ObservableObject {
     static var shared: Launcher?
 
     @Published var query = "" { didSet { if query != oldValue { queryChanged() } } }
-    @Published var mode: Mode = .root
+    /// Leaving a mode cancels its pending plugin query.
+    @Published var mode: Mode = .root {
+        didSet { if mode != oldValue { pluginTask?.cancel(); pluginTask = nil } }
+    }
     @Published var items: [Item] = []
     @Published var selected = 0
     @Published var showActions = false
@@ -33,15 +36,16 @@ final class Launcher: ObservableObject {
 
     func toggle() { panel?.isVisible == true ? hide() : show() }
 
-    func show(mode m: Mode = .root) {
+    /// Opens the panel. The AI chat survives hide/show unless a mode or query is given; everything else starts clean.
+    func show(mode m: Mode = .root, query q: String? = nil) {
         AppIndex.shared.refreshIfStale()
         if m != .root {
             enter(m)
-        } else if mode != .ai {
-            // The AI chat survives hide/show; everything else starts clean.
+        } else if q != nil || mode != .ai {
             mode = .root
             query = ""
             refresh()
+            if let q { query = q }
         }
         panel?.present()
         focusToken += 1
@@ -68,15 +72,15 @@ final class Launcher: ObservableObject {
         all += Snippets.items(config.snippet)
         all += config.plugin.map(Plugins.entry)
         if config.clipboard.enabled {
-            all.append(Item(id: "mode.clipboard", title: "Clipboard History", icon: .symbol("doc.on.clipboard"), keywords: ["paste"], accessory: "Command", opens: .clipboard))
+            all.append(Item(id: Mode.clipboard.itemID, title: "Clipboard History", icon: .symbol("doc.on.clipboard"), keywords: ["paste"], accessory: "Command", opens: .clipboard))
         }
-        all.append(Item(id: "mode.emoji", title: "Search Emoji & Symbols", icon: .symbol("face.smiling"), keywords: ["emoji"], accessory: "Command", opens: .emoji))
-        all.append(Item(id: "mode.snippets", title: "Search Snippets", icon: .symbol("text.quote"), accessory: "Command", opens: .snippets))
+        all.append(Item(id: Mode.emoji.itemID, title: "Search Emoji & Symbols", icon: .symbol("face.smiling"), keywords: ["emoji"], accessory: "Command", opens: .emoji))
+        all.append(Item(id: Mode.snippets.itemID, title: "Search Snippets", icon: .symbol("text.quote"), accessory: "Command", opens: .snippets))
         if config.onepassword.enabled {
-            all.append(Item(id: "mode.onepassword", title: "1Password", subtitle: "Search vault items", icon: .symbol("key.horizontal"), keywords: ["password", "op", "1p"], accessory: "Command", opens: .onepassword))
+            all.append(Item(id: Mode.onepassword.itemID, title: "1Password", subtitle: "Search vault items", icon: .symbol("key.horizontal"), keywords: ["password", "op", "1p"], accessory: "Command", opens: .onepassword))
         }
         if config.ai.enabled {
-            all.append(Item(id: "mode.ai", title: "AI Chat", subtitle: config.ai.model, icon: .symbol("sparkles"), keywords: ["ask", "ai"], accessory: "Command", opens: .ai))
+            all.append(Item(id: Mode.ai.itemID, title: "AI Chat", subtitle: config.ai.model, icon: .symbol("sparkles"), keywords: ["ask", "ai"], accessory: "Command", opens: .ai))
         }
         all.append(Item(id: "hl.config", title: "Edit Helge Launcher Config", icon: .symbol("gearshape"), keywords: ["settings", "preferences"], accessory: "Command",
                         actions: [Action(title: "Open") { _ = openURL(Paths.configFile.path); return false }]))
@@ -110,10 +114,27 @@ final class Launcher: ObservableObject {
         }
     }
 
-    func refresh() {
-        items = computeItems()
-        selected = 0
-        showActions = false
+    func refresh() { setItems(computeItems(), keepSelection: false) }
+
+    /// Replaces the list. `keepSelection` keeps the same item selected (by id) when it is still listed;
+    /// otherwise the first item is selected. The actions menu closes when the selected item changes.
+    /// Duplicate ids get a `#n` suffix so list identity stays unique.
+    func setItems(_ new: [Item], keepSelection: Bool) {
+        let previous = current?.id
+        var seen: [String: Int] = [:]
+        items = new.map { item in
+            var item = item
+            let n = seen[item.id, default: 0]
+            seen[item.id] = n + 1
+            if n > 0 { item.id += "#\(n)" }
+            return item
+        }
+        if keepSelection, let previous, let i = items.firstIndex(where: { $0.id == previous }) {
+            selected = i
+        } else {
+            selected = keepSelection ? min(selected, max(0, items.count - 1)) : 0
+        }
+        if current?.id != previous { showActions = false }
     }
 
     private func queryChanged() {
@@ -126,20 +147,14 @@ final class Launcher: ObservableObject {
                 try? await Task.sleep(nanoseconds: 120_000_000)
                 guard !Task.isCancelled else { return }
                 let r = await Plugins.query(p, q)
-                guard !Task.isCancelled else { return }
-                items = r
-                selected = 0
+                guard !Task.isCancelled, mode == .plugin(name) else { return }
+                setItems(r, keepSelection: false)
             }
         case .ai:
             break
         case .root:
-            // "<prefix> <query>" jumps straight into a plugin with the rest as its query.
             if let p = config.plugin.first(where: { p in p.prefix.map { query.hasPrefix($0 + " ") } ?? false }), let prefix = p.prefix {
-                let rest = String(query.dropFirst(prefix.count + 1))
-                mode = .plugin(p.name)
-                items = []
-                query = rest   // always differs from "<prefix> <rest>", so this re-runs queryChanged in plugin mode
-                focusToken += 1
+                enter(.plugin(p.name), query: String(query.dropFirst(prefix.count + 1)))
                 return
             }
             refresh()
@@ -148,23 +163,23 @@ final class Launcher: ObservableObject {
         }
     }
 
-    func enter(_ m: Mode) {
+    func enter(_ m: Mode, query q: String = "") {
+        History.shared.record(m.itemID)
         mode = m
-        query = ""
-        History.shared.record("mode.\(m)")
+        setItems([], keepSelection: false)
+        let unchanged = query == q
+        query = q
         switch m {
         case .onepassword:
-            items = []
             Task {
                 await OnePassword.shared.refresh()
-                if mode == .onepassword { refresh() }
+                if mode == .onepassword { setItems(computeItems(), keepSelection: true) }
             }
             refresh()
         case .plugin:
-            items = []
-            queryChanged()
+            if unchanged { queryChanged() }
         case .ai:
-            items = []
+            break
         default:
             refresh()
         }
@@ -211,8 +226,14 @@ final class Launcher: ObservableObject {
         finish(it.actions[idx].run())
     }
 
+    func click(_ index: Int) {
+        showActions = false
+        selected = index
+        activate()
+    }
+
     private func finish(_ keepOpen: Bool) {
-        if keepOpen { items = computeItems(); selected = min(selected, max(0, items.count - 1)) } else { hide() }
+        if keepOpen { setItems(computeItems(), keepSelection: true) } else { hide() }
     }
 
     func toggleActions() {

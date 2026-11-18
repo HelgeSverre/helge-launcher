@@ -65,10 +65,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 launcher.show()
                 if let q { launcher.askAI(q) } else { launcher.enter(.ai) }
             default:
-                launcher.show()
-                if let q { launcher.query = q }
+                launcher.show(query: q)
             }
-            if let q, u.host == "show" || u.host == nil { launcher.query = q }
         }
     }
 

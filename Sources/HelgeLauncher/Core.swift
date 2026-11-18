@@ -32,6 +32,19 @@ enum Mode: Equatable {
     case ai
     case plugin(String)
 
+    /// Id of the root-list item that opens this mode; frecency is recorded under it.
+    var itemID: String {
+        switch self {
+        case .root: return "mode.root"
+        case .clipboard: return "mode.clipboard"
+        case .emoji: return "mode.emoji"
+        case .snippets: return "mode.snippets"
+        case .onepassword: return "mode.onepassword"
+        case .ai: return "mode.ai"
+        case .plugin(let name): return "plugin:" + name
+        }
+    }
+
     var title: String {
         switch self {
         case .root: return ""
