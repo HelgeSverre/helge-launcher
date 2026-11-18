@@ -214,12 +214,13 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("start-\(UUID().uuidString)").path
         let oc = try server(#"echo $$ > "# + pidFile + #"; exec sleep 5"#)
         Task { _ = try? await oc.ensureStarted() }
-        for _ in 0..<100 where !FileManager.default.fileExists(atPath: pidFile) {
+        var written: Int32?
+        for _ in 0..<250 where written == nil {
             try await Task.sleep(nanoseconds: 20_000_000)
+            written = (try? String(contentsOfFile: pidFile, encoding: .utf8))
+                .flatMap { Int32($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
         }
-        let pid = try #require(
-            Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines))
-        )
+        let pid = try #require(written)
         oc.stop()
         try await Task.sleep(nanoseconds: 500_000_000)
         #expect(kill(pid, 0) != 0)
