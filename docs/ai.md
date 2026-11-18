@@ -44,7 +44,9 @@ Set `enabled = false` to remove the AI items and stop the server.
 
 ## How it works
 
-- At launch (and when the config changes) the launcher starts `opencode serve --hostname 127.0.0.1 --port 0` as a child process, with a random password. It reads the chosen port from the server's output. The server stops when the launcher quits.
+- At launch (and when the config changes) the launcher starts `opencode serve --stdio --hostname 127.0.0.1 --port 0` as a child process, with a random password, and reads the server's address from its first line of output. The server's stdin is a pipe held by the launcher: when the launcher quits or crashes, the pipe closes and the server shuts down.
+- If the server exits, the next question starts a new one. Changing `opencode` or setting `enabled = false` stops it; a `model` change applies to new chats (⌘N).
+- One question is answered at a time; asking while an answer is streaming shows "Still answering".
 - Each conversation is a session created with `POST /api/session` (model and permissions above). Questions go to `POST /api/session/{id}/prompt`.
 - Answers arrive over one server-sent-events stream (`GET /api/event`), filtered to text deltas, tool calls and completion.
 - The server only listens on localhost and requires the password, which never leaves the process.

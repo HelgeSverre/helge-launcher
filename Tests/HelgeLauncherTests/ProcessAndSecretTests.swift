@@ -48,6 +48,25 @@ func executable(_ body: String) throws -> String {
         #expect(kill(pid, 0) != 0)
     }
 
+    @Test func cancelledBeforeLaunchNeverRuns() async throws {
+        let marker = FileManager.default.temporaryDirectory.appendingPathComponent("ran-\(UUID().uuidString)").path
+        let task = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            return try await Shell.run("/usr/bin/touch", [marker])
+        }
+        _ = try? await task.value
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(!FileManager.default.fileExists(atPath: marker))
+    }
+
+    @Test func timeoutAlsoEndsBackgroundedGrandchildren() async throws {
+        let pidFile = FileManager.default.temporaryDirectory.appendingPathComponent("gc-\(UUID().uuidString)").path
+        _ = try? await Shell.run("/bin/sh", ["-c", "sleep 30 & echo $! > \(pidFile); wait"], timeout: 0.5)
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let pid = try #require(Int32(String(contentsOfFile: pidFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)))
+        #expect(kill(pid, 0) != 0)
+    }
+
     @Test func nonZeroExitReportsStderr() async throws {
         await #expect(throws: Shell.Failure.self) { _ = try await Shell.run("/bin/sh", ["-c", "echo nope >&2; exit 3"]) }
     }

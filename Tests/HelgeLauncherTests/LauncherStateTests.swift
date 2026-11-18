@@ -48,6 +48,30 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         let l = Launcher(ai: FakeAI())
         l.setItems([item("a"), item("a"), item("b"), item("a")], keepSelection: false)
         #expect(l.items.map(\.id) == ["a", "a#1", "b", "a#2"])
+        l.setItems([item("a#1"), item("a"), item("a")], keepSelection: false)
+        #expect(l.items.map(\.id) == ["a#1", "a", "a#2"])
+    }
+
+    @Test func askingWhileTheAIIsBusyKeepsTheQuestion() async {
+        let ai = FakeAI()
+        let l = Launcher(ai: ai)
+        l.config.ai.enabled = true
+        l.askAI("first")
+        await settle()
+        l.mode = .root
+        l.query = "second"
+        l.askAI("second")
+        #expect(l.mode == .root && l.query == "second")
+    }
+
+    @Test func tabWithTheActionsMenuOpenClosesIt() {
+        let l = Launcher(ai: FakeAI())
+        l.config.ai.enabled = true
+        l.setItems([item("a")], keepSelection: false)
+        l.query = "hello"
+        l.showActions = true
+        l.tab()
+        #expect(l.mode == .ai && !l.showActions)
     }
 
     @Test func showWithAQueryLeavesTheAIChat() {

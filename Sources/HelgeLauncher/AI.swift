@@ -64,13 +64,18 @@ final class OpenCode: AIBackend {
 
     private enum State {
         case idle
-        case starting(id: Int, task: Task<Server, Error>)
+        case starting(id: Int, task: Task<Int, Error>)
         case running(Server)
     }
 
     private var state = State.idle
     private var nextServerID = 1
-    private var handlers: [String: @MainActor (AIEvent) -> Void] = [:]
+    private struct Handler {
+        let deliver: @MainActor (AIEvent) -> Void
+        let since: Date
+    }
+
+    private var handlers: [String: Handler] = [:]
     private let password = UUID().uuidString + UUID().uuidString
     var startTimeout: TimeInterval = 20
 
@@ -90,34 +95,45 @@ final class OpenCode: AIBackend {
         if new.enabled { Task { _ = try? await ensureStarted() } }
     }
 
-    /// Returns the running server's id, starting it if needed. Concurrent callers share one start.
+    /// Returns the running server's id, starting it if needed. Concurrent callers share one start;
+    /// when the start task finishes, the server is installed as running (or the start failed).
     func ensureStarted() async throws -> Int {
         guard config.enabled else { throw AIError.disabled }
         switch state {
         case .running(let s):
             return s.id
         case .starting(_, let task):
-            return try await task.value.id
+            return try await task.value
         case .idle:
             let id = nextServerID
             nextServerID += 1
             let binary = NSString(string: config.opencode).expandingTildeInPath
-            let task = Task { try await self.launch(id: id, binary: binary) }
+            let task = Task { try await self.start(id: id, binary: binary) }
             state = .starting(id: id, task: task)
-            do {
-                var server = try await task.value
-                guard case .starting(let current, _) = state, current == id else {
-                    terminate(server)
-                    throw AIError.startFailed("stopped while starting")
-                }
-                server.events = subscribe(server)
-                state = .running(server)
-                return id
-            } catch {
-                if case .starting(let current, _) = state, current == id { state = .idle }
-                throw error
-            }
+            return try await task.value
         }
+    }
+
+    private func start(id: Int, binary: String) async throws -> Int {
+        let server: Server
+        do {
+            server = try await launch(id: id, binary: binary)
+        } catch {
+            if case .starting(let current, _) = state, current == id { state = .idle }
+            throw error
+        }
+        guard case .starting(let current, _) = state, current == id else {
+            terminate(server)
+            throw AIError.startFailed("stopped while starting")
+        }
+        guard server.process.isRunning else {
+            state = .idle
+            throw AIError.startFailed("exited during startup")
+        }
+        var running = server
+        running.events = subscribe(running)
+        state = .running(running)
+        return id
     }
 
     func stop() {
@@ -150,7 +166,7 @@ final class OpenCode: AIBackend {
     private func failAll(_ message: String) {
         let pending = handlers
         handlers = [:]
-        for h in pending.values { h(.failed(message)) }
+        for h in pending.values { h.deliver(.failed(message)) }
     }
 
     private var runningServer: Server? {
@@ -177,7 +193,11 @@ final class OpenCode: AIBackend {
         do { try p.run() } catch { throw AIError.startFailed(error.localizedDescription) }
 
         do {
-            let url = try await Self.readURL(from: stdout.fileHandleForReading, timeout: startTimeout)
+            let url = try await withTaskCancellationHandler {
+                try await Self.readURL(from: stdout.fileHandleForReading, timeout: startTimeout)
+            } onCancel: {
+                p.terminate()
+            }
             return Server(id: id, process: p, stdin: stdin.fileHandleForWriting, url: url)
         } catch {
             try? stdin.fileHandleForWriting.close()
@@ -236,7 +256,7 @@ final class OpenCode: AIBackend {
 
     func prompt(_ session: AISession, text: String, onEvent: @escaping @MainActor (AIEvent) -> Void) async throws {
         guard runningServer?.id == session.server else { throw AIError.sessionLost }
-        handlers[session.id] = onEvent
+        handlers[session.id] = Handler(deliver: onEvent, since: Date())
         var full = text
         if let sys = config.system, !sys.isEmpty { full = sys + "\n\n" + text }
         do {
@@ -282,6 +302,19 @@ final class OpenCode: AIBackend {
         return (try? JSONSerialization.jsonObject(with: d) as? [String: Any]) ?? [:]
     }
 
+    /// Prompts whose session is no longer active finished while the event stream was down.
+    /// Prompts younger than 2 s are skipped: their execution may not have started yet.
+    private func finishInactiveSessions(_ server: Server) async {
+        guard !handlers.isEmpty,
+              let r = try? await call("api/session/active", method: "GET", body: nil, server: server.id),
+              let active = r["data"] as? [String: Any] else { return }
+        let cutoff = Date().addingTimeInterval(-2)
+        for (sid, h) in handlers where active[sid] == nil && h.since < cutoff {
+            handlers[sid] = nil
+            h.deliver(.done)
+        }
+    }
+
     /// One event stream per server; reconnects after a 1 s pause until cancelled.
     private func subscribe(_ server: Server) -> Task<Void, Never> {
         let types = ["session.text.delta", "session.tool.called", "session.execution.succeeded",
@@ -292,10 +325,13 @@ final class OpenCode: AIBackend {
         req.url = comps.url
         req.timeoutInterval = .infinity
         return Task { [weak self] in
+            var reconnecting = false
             while !Task.isCancelled {
                 do {
                     let (bytes, resp) = try await URLSession.shared.bytes(for: req)
                     if (resp as? HTTPURLResponse)?.statusCode == 200 {
+                        if reconnecting { await self?.finishInactiveSessions(server) }
+                        reconnecting = true
                         for try await line in bytes.lines where line.hasPrefix("data:") {
                             self?.dispatch(Data(line.dropFirst(5).utf8))
                         }
@@ -311,7 +347,7 @@ final class OpenCode: AIBackend {
               let type = obj["type"] as? String,
               let data = obj["data"] as? [String: Any],
               let sid = data["sessionID"] as? String,
-              let handler = handlers[sid] else { return }
+              let handler = handlers[sid]?.deliver else { return }
         let event: AIEvent
         switch type {
         case "session.text.delta": event = .delta(data["delta"] as? String ?? "")
@@ -346,4 +382,11 @@ final class LockedBuffer: @unchecked Sendable {
     func append(_ d: Data) { lock.withLock { storage.append(d) } }
     var data: Data { lock.withLock { storage } }
     var text: String { String(decoding: data, as: UTF8.self) }
+}
+
+final class LockedFlag: @unchecked Sendable {
+    private var value = false
+    private let lock = NSLock()
+    func set() { lock.withLock { value = true } }
+    var isSet: Bool { lock.withLock { value } }
 }

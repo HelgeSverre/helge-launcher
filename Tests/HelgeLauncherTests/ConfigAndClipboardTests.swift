@@ -15,6 +15,8 @@ import Testing
         let d = try dir(["config.toml": #"include = ["extra.toml"]"#])
         let loaded = ConfigLoader.load(from: d)
         #expect(loaded.error == nil && loaded.config?.snippet.isEmpty == true)
+        #expect(loaded.warnings == ["include extra.toml not found"])
+        #expect(loaded.stamps[d.appendingPathComponent("extra.toml").path] == .distantPast)
         #expect(loaded.files.map(\.lastPathComponent) == ["config.toml", "extra.toml"])
 
         try #"[[snippet]]\#nname = "a"\#ntext = "b""#.write(to: d.appendingPathComponent("extra.toml"), atomically: true, encoding: .utf8)
@@ -59,16 +61,37 @@ extension PasteboardTests {
             if let saved { NSPasteboard.general.setString(saved, forType: .string) }
         }
         let h = ClipboardHistory()
+        let dir = Paths.supportDir.appendingPathComponent("clipboard-images")
+        let filesBefore = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? [])
+        let entriesBefore = h.entries.count
         let red = png(.red)
         copyImage(red); h.poll()
         copyImage(red); h.poll()
-        let images = h.entries.filter { $0.kind == "image" && h.entries.first?.text == $0.text }
-        #expect(images.count == 1)
+        let newFiles = Set((try? FileManager.default.contentsOfDirectory(atPath: dir.path)) ?? []).subtracting(filesBefore)
+        #expect(newFiles.count == 1)
+        #expect(h.entries.count == entriesBefore + 1)
 
-        let file = Paths.supportDir.appendingPathComponent("clipboard-images").appendingPathComponent(try #require(images.first).text)
-        #expect(FileManager.default.fileExists(atPath: file.path))
-        h.delete(images[0].id)
-        #expect(!FileManager.default.fileExists(atPath: file.path))
+        let entry = try #require(h.entries.first)
+        #expect(entry.kind == "image" && newFiles.contains(entry.text))
+        h.delete(entry.id)
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent(entry.text).path))
+    }
+
+    @Test func restoringAMissingImageDropsItAndKeepsTheClipboard() throws {
+        let saved = NSPasteboard.general.string(forType: .string)
+        defer {
+            NSPasteboard.general.clearContents()
+            if let saved { NSPasteboard.general.setString(saved, forType: .string) }
+        }
+        let h = ClipboardHistory()
+        copyImage(png(.blue)); h.poll()
+        let entry = try #require(h.entries.first)
+        try FileManager.default.removeItem(at: Paths.supportDir.appendingPathComponent("clipboard-images").appendingPathComponent(entry.text))
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString("keep me", forType: .string)
+        #expect(h.restore(entry) == false)
+        #expect(NSPasteboard.general.string(forType: .string) == "keep me")
+        #expect(!h.entries.contains { $0.id == entry.id })
     }
 
     @Test func zeroMaxItemsStillKeepsTheNewestEntry() {

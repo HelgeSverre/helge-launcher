@@ -182,7 +182,8 @@ enum Paths {
         let env = ProcessInfo.processInfo.environment
         let u: URL
         if let dir = env["HL_DATA_DIR"] {
-            u = URL(fileURLWithPath: NSString(string: dir).expandingTildeInPath)
+            let path = NSString(string: dir).expandingTildeInPath
+            u = path.hasPrefix("/") ? URL(fileURLWithPath: path) : URL(fileURLWithPath: NSHomeDirectory()).appendingPathComponent(path)
         } else if ["swiftpm-testing-helper", "xctest"].contains(ProcessInfo.processInfo.processName) {
             u = FileManager.default.temporaryDirectory.appendingPathComponent("HelgeLauncherTests-\(getpid())")
         } else {
@@ -226,8 +227,11 @@ enum ConfigLoader {
         /// nil when a file failed to parse.
         var config: Config?
         var error: String?
-        /// Every file the load read or tried to read; watch these for changes.
-        var files: [URL]
+        /// Non-fatal problems, such as an include that doesn't exist yet.
+        var warnings: [String] = []
+        /// Modification date of every file the load read or tried to read, taken before reading it.
+        var stamps: [String: Date] = [:]
+        var files: [URL] { stamps.keys.sorted().map { URL(fileURLWithPath: $0) } }
     }
 
     /// Loads `config.toml` (created with defaults if missing) and its `include`d files, whose
@@ -239,24 +243,37 @@ enum ConfigLoader {
         if !fm.fileExists(atPath: main.path) {
             try? defaultConfig.write(to: main, atomically: true, encoding: .utf8)
         }
+        var result = Loaded()
+        func read(_ url: URL) throws -> Config {
+            result.stamps[url.path] = ConfigWatcher.stamp(url.path)
+            return try parse(url)
+        }
         var cfg: Config
         do {
-            cfg = try parse(main)
+            cfg = try read(main)
         } catch {
-            return Loaded(config: nil, error: "\(error)", files: [main])
+            result.error = "\(error)"
+            return result
         }
-        let includes = cfg.include.map { URL(fileURLWithPath: Paths.expand($0, relativeTo: dir)) }
         do {
-            for url in includes where fm.fileExists(atPath: url.path) {
-                let extra = try parse(url)
+            for inc in cfg.include {
+                let url = URL(fileURLWithPath: Paths.expand(inc, relativeTo: dir))
+                guard fm.fileExists(atPath: url.path) else {
+                    result.stamps[url.path] = .distantPast
+                    result.warnings.append("include \(inc) not found")
+                    continue
+                }
+                let extra = try read(url)
                 cfg.command += extra.command
                 cfg.snippet += extra.snippet
                 cfg.plugin += extra.plugin
             }
         } catch {
-            return Loaded(config: nil, error: "\(error)", files: [main] + includes)
+            result.error = "\(error)"
+            return result
         }
-        return Loaded(config: cfg, error: nil, files: [main] + includes)
+        result.config = cfg
+        return result
     }
 
     static func parse(_ url: URL) throws -> Config {
@@ -273,27 +290,24 @@ enum ConfigLoader {
 final class ConfigWatcher {
     private var timer: Timer?
     private var stamps: [String: Date] = [:]
-    var files: [URL] = []
 
     init(onChange: @escaping () -> Void) {
         timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
             guard let self else { return }
-            let now = self.snapshot()
+            let now = Self.stamps(of: self.stamps.keys)
             if now != self.stamps { self.stamps = now; onChange() }
         }
     }
 
-    func reset(files: [URL]) {
-        self.files = files
-        stamps = snapshot()
+    /// Watches these files, compared against the modification dates the load saw.
+    func reset(stamps: [String: Date]) { self.stamps = stamps }
+
+    static func stamp(_ path: String) -> Date {
+        (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? .distantPast
     }
 
-    private func snapshot() -> [String: Date] {
-        var d: [String: Date] = [:]
-        for f in files {
-            d[f.path] = (try? FileManager.default.attributesOfItem(atPath: f.path)[.modificationDate] as? Date) ?? .distantPast
-        }
-        return d
+    private static func stamps<S: Sequence>(of paths: S) -> [String: Date] where S.Element == String {
+        Dictionary(uniqueKeysWithValues: paths.map { ($0, stamp($0)) })
     }
 }
 

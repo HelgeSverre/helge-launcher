@@ -1,5 +1,11 @@
 import Foundation
 import Testing
+
+extension Result where Failure == Error {
+    init(catching body: () async throws -> Success) async {
+        do { self = .success(try await body()) } catch { self = .failure(error) }
+    }
+}
 @testable import HelgeLauncher
 
 /// Backend whose session creation and events are driven by the test.
@@ -164,6 +170,36 @@ func settle() async { for _ in 0..<20 { await Task.yield() } }
         oc.stop()
         for _ in 0..<100 where !FileManager.default.fileExists(atPath: marker) { try await Task.sleep(nanoseconds: 20_000_000) }
         #expect(FileManager.default.fileExists(atPath: marker))
+    }
+
+    @Test func serverThatExitsRightAfterItsURLIsNotKept() async throws {
+        let oc = try server(#"echo '{"url":"http://127.0.0.1:9"}'; exit 0"#)
+        let first = try? await oc.ensureStarted()
+        try await Task.sleep(nanoseconds: 300_000_000)
+        let second = try? await oc.ensureStarted()
+        #expect(first == nil || second != first)
+        oc.stop()
+    }
+
+    @Test func callersJoiningAStartSeeAnInstalledServer() async throws {
+        let oc = try server(healthy)
+        async let a = Result(catching: { try await oc.createSession() })
+        async let b = Result(catching: { try await oc.createSession() })
+        for r in await [a, b] {
+            if case .failure(let e) = r { #expect(e as? AIError != .sessionLost) }
+        }
+        oc.stop()
+    }
+
+    @Test func stopDuringStartFailsEveryWaiter() async throws {
+        let oc = try server(#"sleep 0.3; echo '{"url":"http://127.0.0.1:9"}'; cat > /dev/null"#)
+        async let a = Result(catching: { try await oc.ensureStarted() })
+        async let b = Result(catching: { try await oc.ensureStarted() })
+        try await Task.sleep(nanoseconds: 50_000_000)
+        oc.stop()
+        for r in await [a, b] {
+            if case .success = r { Issue.record("a waiter got a server that was stopped") }
+        }
     }
 
     @Test func disablingStopsAndRefusesToStart() async throws {

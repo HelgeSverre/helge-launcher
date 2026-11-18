@@ -84,7 +84,7 @@ struct SearchField: NSViewRepresentable {
             DispatchQueue.main.async {
                 f.window?.makeFirstResponder(f)
                 (f.currentEditor() as? NSTextView)?.insertionPointColor = Theme.nsAccent
-                f.currentEditor()?.selectedRange = NSRange(location: f.stringValue.count, length: 0)
+                f.currentEditor()?.selectedRange = NSRange(location: (f.stringValue as NSString).length, length: 0)
             }
         }
     }

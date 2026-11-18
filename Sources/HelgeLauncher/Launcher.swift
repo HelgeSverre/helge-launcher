@@ -11,13 +11,15 @@ final class Launcher: ObservableObject {
     @Published var mode: Mode = .root {
         didSet { if mode != oldValue { pluginTask?.cancel(); pluginTask = nil } }
     }
-    @Published var items: [Item] = []
+    @Published private(set) var items: [Item] = []
     @Published var selected = 0
     @Published var showActions = false
     @Published var actionIndex = 0
     @Published var toastText: String?
     @Published var configError: String?
     @Published var focusToken = 0
+    /// Increments on every `show`; lets delayed work detect that the panel was reopened.
+    private(set) var showCount = 0
 
     var config = Config()
     var conversation: Conversation
@@ -47,6 +49,7 @@ final class Launcher: ObservableObject {
             refresh()
             if let q { query = q }
         }
+        showCount += 1
         panel?.present()
         focusToken += 1
     }
@@ -121,12 +124,16 @@ final class Launcher: ObservableObject {
     /// Duplicate ids get a `#n` suffix so list identity stays unique.
     func setItems(_ new: [Item], keepSelection: Bool) {
         let previous = current?.id
-        var seen: [String: Int] = [:]
+        var used = Set<String>()
         items = new.map { item in
             var item = item
-            let n = seen[item.id, default: 0]
-            seen[item.id] = n + 1
-            if n > 0 { item.id += "#\(n)" }
+            let base = item.id
+            var n = 1
+            while used.contains(item.id) {
+                item.id = "\(base)#\(n)"
+                n += 1
+            }
+            used.insert(item.id)
             return item
         }
         if keepSelection, let previous, let i = items.firstIndex(where: { $0.id == previous }) {
@@ -252,10 +259,15 @@ final class Launcher: ObservableObject {
 
     func askAI(_ q: String) {
         guard config.ai.enabled else { toast("AI is disabled in the config"); return }
+        guard !conversation.isBusy else { toast("Still answering · ⌘N for a new chat"); return }
         mode = .ai
-        query = ""
-        items = []
+        setItems([], keepSelection: false)
         submit(q)
+    }
+
+    func openAIChat() {
+        guard config.ai.enabled else { toast("AI is disabled in the config"); return }
+        enter(.ai)
     }
 
     func newChat() {

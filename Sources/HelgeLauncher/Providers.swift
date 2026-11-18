@@ -218,10 +218,12 @@ enum Snippets {
         }
     }
 
-    /// Pastes into `target` only if it is still frontmost and the launcher is closed; otherwise copies.
-    @MainActor static func deliver(_ e: Expanded, paste: Bool, target: NSRunningApplication?) {
+    /// Pastes into `target` only if it is still frontmost and the launcher hasn't been shown since
+    /// `showCount` was taken; otherwise copies.
+    @MainActor static func deliver(_ e: Expanded, paste: Bool, target: NSRunningApplication?, showCount: Int? = nil) {
         let stillThere = target != nil && NSWorkspace.shared.frontmostApplication == target
-        if paste && stillThere && Launcher.shared?.panel?.isVisible != true {
+        let notReopened = Launcher.shared.map { $0.showCount == showCount && $0.panel?.isVisible != true } ?? true
+        if paste && stillThere && notReopened {
             Pasteboard.paste(e.text, concealed: e.isSecret)
         } else {
             Pasteboard.copy(e.text, concealed: e.isSecret)
@@ -241,8 +243,9 @@ enum Snippets {
                     Action(title: "Paste") {
                         History.shared.record(id)
                         let target = NSWorkspace.shared.frontmostApplication
+                        let shown = Launcher.shared?.showCount
                         Task { @MainActor in
-                            if let e = await expand(s.text) { deliver(e, paste: true, target: target) }
+                            if let e = await expand(s.text) { deliver(e, paste: true, target: target, showCount: shown) }
                         }
                         return false
                     },

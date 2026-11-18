@@ -186,7 +186,9 @@ enum Shell {
         cwd: URL? = nil,
         timeout: TimeInterval = 30
     ) async throws -> Data {
+        try Task.checkCancellation()
         let p = makeProcess(program, args, env: env, unset: unset, cwd: cwd)
+        let cancelled = LockedFlag()
         let out = Pipe(), err = Pipe(), inp = Pipe()
         p.standardOutput = out
         p.standardError = err
@@ -219,12 +221,17 @@ enum Shell {
                         once.resume(throwing: Failure(message: msg.isEmpty ? "\(name): exit \(proc.terminationStatus)" : msg))
                     }
                 }
+                if cancelled.isSet {
+                    once.resume(throwing: CancellationError())
+                    return
+                }
                 do {
                     try p.run()
                 } catch {
                     once.resume(throwing: error)
                     return
                 }
+                if cancelled.isSet { p.terminate() }
                 if let stdin { inp.fileHandleForWriting.write(stdin) }
                 try? inp.fileHandleForWriting.close()
                 DispatchQueue.global().asyncAfter(deadline: .now() + timeout) {
@@ -233,6 +240,7 @@ enum Shell {
                 }
             }
         } onCancel: {
+            cancelled.set()
             if p.isRunning { p.terminate() }
         }
     }
@@ -322,8 +330,9 @@ enum Pasteboard {
         up?.post(tap: .cghidEventTap)
     }
 
-    /// Clears the pasteboard after `seconds` if it still holds `value`.
+    /// Clears the pasteboard after `seconds` if it still holds `value`. 0 or less: never.
     static func clear(after seconds: Int, ifStill value: String) {
+        guard seconds > 0 else { return }
         let change = NSPasteboard.general.changeCount
         DispatchQueue.main.asyncAfter(deadline: .now() + .seconds(seconds)) {
             if NSPasteboard.general.changeCount == change, NSPasteboard.general.string(forType: .string) == value {

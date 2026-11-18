@@ -120,7 +120,7 @@ text = "op://Personal/OpenAI/credential"
 - The list shows the reference, never the value, and there is no preview for it.
 - It must be the whole text on one line. `op://` inside a longer text is pasted literally.
 - Placeholders are expanded first, so a reference can include one (rarely useful).
-- The value is copied as concealed, so clipboard history (this app's and other managers') skips it, and it is cleared from the clipboard after `clear_after` seconds (90 by default, see [config.md](config.md#onepassword)).
+- The value is copied as concealed, so clipboard history (this app's and other managers') skips it, and it is cleared from the clipboard after `clear_after` seconds (90 by default, `0` never; see [config.md](config.md#onepassword)).
 - If you switch apps or reopen the launcher while 1Password asks for approval, the value is copied instead of pasted, so it never lands in the wrong app.
 - If 1Password can't be read (locked, approval declined or not answered within 30 seconds), nothing is pasted or copied.
 

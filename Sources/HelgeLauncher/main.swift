@@ -65,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case "1password": launcher.show(mode: .onepassword)
             case "ai":
                 launcher.show()
-                if let q { launcher.askAI(q) } else { launcher.enter(.ai) }
+                if let q { launcher.askAI(q) } else { launcher.openAIChat() }
             default:
                 launcher.show(query: q)
             }
@@ -76,7 +76,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
 
     func reloadConfig() {
         let loaded = ConfigLoader.load()
-        watcher?.reset(files: loaded.files)
+        watcher?.reset(stamps: loaded.stamps)
         let err = loaded.error
         if let err, hasGoodConfig {
             launcher.configError = err
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         OnePassword.shared.config = cfg.onepassword
         OpenCode.shared.apply(cfg.ai)
 
-        var problems: [String] = err.map { [$0] } ?? []
+        var problems: [String] = (err.map { [$0] } ?? []) + loaded.warnings
         Hotkeys.shared.unregisterAll()
         if let e = Hotkeys.shared.register(cfg.hotkey, { [weak self] in self?.launcher.toggle() }) { problems.append(e) }
         if let h = cfg.clipboard.hotkey,
@@ -169,7 +169,7 @@ func renderLauncher(_ args: [String], to path: String) {
     default: l.mode = .root
     }
     l.query = arg("--search") ?? ""
-    if l.mode != .ai { l.items = l.computeItems() }
+    if l.mode != .ai { l.setItems(l.computeItems(), keepSelection: false) }
     if args.contains("--actions") { l.selected = 0; l.showActions = true }
     let host = NSHostingView(rootView: LauncherView().environmentObject(l)
         .background(Theme.surface)

@@ -58,7 +58,7 @@ prefix = "="
 |---|---|---|---|
 | `hotkey` | [hotkey](#hotkeys) | `"cmd+space"` | Toggles the launcher. Turn off Spotlight's ⌘Space first (System Settings → Keyboard → Keyboard Shortcuts → Spotlight). |
 | `launch_at_login` | bool | `false` | Registers the app as a login item (System Settings → General → Login Items). |
-| `include` | list of paths | `[]` | Extra TOML files, relative to the config directory or with `~`. Their `[[snippet]]`, `[[command]]` and `[[plugin]]` blocks are added to this file's; any other settings in them are ignored. A file that doesn't exist yet counts as empty and is picked up when you create it. |
+| `include` | list of paths | `[]` | Extra TOML files, relative to the config directory or with `~`. Their `[[snippet]]`, `[[command]]` and `[[plugin]]` blocks are added to this file's; any other settings in them are ignored. A file that doesn't exist yet counts as empty (the footer notes "include … not found") and is picked up when you create it. |
 
 ## `[ai]`
 
@@ -78,7 +78,7 @@ Clipboard history: text, links, colours (`#rrggbb`), files and images.
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | bool | `true` | Records the clipboard and shows the Clipboard History command |
-| `max_items` | int | `500` | Unpinned entries kept; older ones are dropped. Pinned entries are always kept. |
+| `max_items` | int | `500` | Unpinned entries kept (at least 1); older ones are dropped. Pinned entries are always kept. |
 | `ignore_apps` | list of bundle IDs | 1Password 7 and 8 | Copies made while one of these apps is in front are not recorded |
 | `hotkey` | [hotkey](#hotkeys) | none | Opens clipboard history directly |
 
@@ -95,7 +95,7 @@ Search 1Password items and copy passwords, usernames and one-time codes, through
 | `enabled` | bool | `true` | Shows the 1Password command |
 | `op` | string | `"op"` | The `op` binary |
 | `account` | string | none | Passed as `--account` when you have several 1Password accounts (`my.1password.com`, an account ID, or a sign-in address) |
-| `clear_after` | int (seconds) | `90` | Copied secrets are removed from the clipboard after this long, if the clipboard still holds them |
+| `clear_after` | int (seconds) | `90` | Copied secrets are removed from the clipboard after this long, if the clipboard still holds them. `0` never clears. |
 | `use_service_account` | bool | `false` | `false`: `op` uses the 1Password app (your own vaults), and an `OP_SERVICE_ACCOUNT_TOKEN` in the environment is ignored. `true`: the token is used. |
 
 Setup: in 1Password, enable **Settings → Developer → Integrate with 1Password CLI**. The first search asks you to approve access in 1Password. Items are cached for 5 minutes.

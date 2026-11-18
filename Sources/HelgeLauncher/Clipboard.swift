@@ -24,6 +24,14 @@ final class ClipboardHistory {
     init() {
         try? FileManager.default.createDirectory(at: imageDir, withIntermediateDirectories: true)
         if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([Entry].self, from: d) { entries = e }
+        removeUnreferencedImages()
+    }
+
+    private func removeUnreferencedImages() {
+        let referenced = Set(entries.filter { $0.kind == "image" }.map(\.text))
+        for name in (try? FileManager.default.contentsOfDirectory(atPath: imageDir.path)) ?? [] where !referenced.contains(name) {
+            try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(name))
+        }
     }
 
     func start() {
@@ -106,13 +114,23 @@ final class ClipboardHistory {
         save()
     }
 
-    /// Puts an entry back on the pasteboard (without re-recording it as new).
-    func restore(_ e: Entry) {
+    /// Puts an entry back on the pasteboard without recording it as a new copy. Returns false (and
+    /// drops the entry, leaving the pasteboard untouched) when its image file is gone.
+    @discardableResult
+    func restore(_ e: Entry) -> Bool {
+        var image: NSImage?
+        if e.kind == "image" {
+            image = NSImage(contentsOf: imageDir.appendingPathComponent(e.text))
+            if image == nil {
+                delete(e.id)
+                return false
+            }
+        }
         let pb = NSPasteboard.general
         pb.clearContents()
         switch e.kind {
         case "file": pb.writeObjects([URL(fileURLWithPath: e.text) as NSURL])
-        case "image": if let img = NSImage(contentsOf: imageDir.appendingPathComponent(e.text)) { pb.writeObjects([img]) }
+        case "image": pb.writeObjects([image!])
         default: pb.setString(e.text, forType: .string)
         }
         lastChange = pb.changeCount
@@ -122,6 +140,7 @@ final class ClipboardHistory {
             entries.insert(moved, at: 0)
             save()
         }
+        return true
     }
 
     var items: [Item] {
@@ -147,12 +166,21 @@ final class ClipboardHistory {
                 accessory: e.pinned ? "Pinned" : "",
                 actions: [
                     Action(title: "Paste") {
-                        self.restore(e)
+                        guard self.restore(e) else {
+                            Launcher.shared?.toast("Image no longer available")
+                            return true
+                        }
                         Launcher.shared?.hide()
                         DispatchQueue.main.asyncAfter(deadline: .now() + 0.08) { Pasteboard.sendCmdV() }
                         return false
                     },
-                    Action(title: "Copy") { self.restore(e); return false },
+                    Action(title: "Copy") {
+                        guard self.restore(e) else {
+                            Launcher.shared?.toast("Image no longer available")
+                            return true
+                        }
+                        return false
+                    },
                     Action(title: e.pinned ? "Unpin" : "Pin") { self.togglePin(e.id); return true },
                     Action(title: "Delete") { self.delete(e.id); return true },
                 ],

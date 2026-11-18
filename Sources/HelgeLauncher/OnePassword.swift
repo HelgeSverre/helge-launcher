@@ -78,7 +78,7 @@ final class OnePassword {
                     guard !v.isEmpty else { Launcher.shared?.toast("No \(label.lowercased()) on this item"); return }
                     Pasteboard.copy(v, concealed: true)
                     Pasteboard.clear(after: self.config.clearAfter, ifStill: v)
-                    Launcher.shared?.toast("\(label) copied, clears in \(self.config.clearAfter)s")
+                    Launcher.shared?.toast(self.config.clearAfter > 0 ? "\(label) copied, clears in \(self.config.clearAfter)s" : "\(label) copied")
                 } catch {
                     Launcher.shared?.toast("1Password: \(error.localizedDescription)")
                 }
