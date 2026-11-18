@@ -13,8 +13,14 @@ BUILD=$(git rev-list --count HEAD 2>/dev/null || echo 1)
 APP="build/Helge Launcher.app"
 
 if (( UNIVERSAL )); then
-  swift build -c release --arch arm64 --arch x86_64
-  BIN=.build/apple/Products/Release/HelgeLauncher
+  # One build per architecture, merged with lipo: multi-arch `swift build` goes through
+  # xcbuild, which fails on some Xcode versions ("duplicate output file").
+  swift build -c release --arch arm64
+  swift build -c release --arch x86_64
+  BIN=build/HelgeLauncher-universal
+  mkdir -p build
+  lipo -create -output "$BIN" \
+    .build/arm64-apple-macosx/release/HelgeLauncher .build/x86_64-apple-macosx/release/HelgeLauncher
 else
   swift build -c release
   BIN=.build/release/HelgeLauncher
