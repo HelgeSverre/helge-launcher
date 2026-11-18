@@ -40,21 +40,29 @@ final class Hotkeys {
         return (key, mods)
     }
 
-    func unregisterAll() {
+    /// Unregisters every hotkey, then registers `bindings` in order. Returns one message per binding
+    /// that is invalid or already taken by another app.
+    func replace(with bindings: [(String, () -> Void)]) -> [String] {
         refs.forEach { UnregisterEventHotKey($0) }
         refs.removeAll()
         actions.removeAll()
+        return bindings.compactMap { register($0.0, $0.1) }
     }
 
-    /// Returns an error string when the combo is invalid or already taken by another app.
-    @discardableResult
-    func register(_ combo: String, _ action: @escaping () -> Void) -> String? {
+    private func register(_ combo: String, _ action: @escaping () -> Void) -> String? {
         installHandler()
         guard let (key, mods) = Hotkeys.parse(combo) else { return "invalid hotkey \"\(combo)\"" }
         let id = nextID
         nextID += 1
         var ref: EventHotKeyRef?
-        let status = RegisterEventHotKey(key, mods, EventHotKeyID(signature: OSType(0x484C4E43), id: id), GetEventDispatcherTarget(), 0, &ref)
+        let status = RegisterEventHotKey(
+            key,
+            mods,
+            EventHotKeyID(signature: OSType(0x484C4E43), id: id),
+            GetEventDispatcherTarget(),
+            0,
+            &ref
+        )
         guard status == noErr, let ref else { return "\(combo) is already in use (\(status))" }
         refs.append(ref)
         actions[id] = action

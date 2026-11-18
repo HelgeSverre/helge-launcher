@@ -3,7 +3,7 @@ import SwiftUI
 
 final class LauncherPanel: NSPanel, NSWindowDelegate {
     init(launcher: Launcher) {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 760, height: 480),
+        super.init(contentRect: NSRect(origin: .zero, size: Theme.panelSize),
                    styleMask: [.nonactivatingPanel, .borderless],
                    backing: .buffered, defer: false)
         isMovableByWindowBackground = false
@@ -15,9 +15,7 @@ final class LauncherPanel: NSPanel, NSWindowDelegate {
         hidesOnDeactivate = false
         delegate = self
 
-        let host = NSHostingView(rootView: LauncherView().environmentObject(launcher)
-            .background(Theme.surface)
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.border, lineWidth: 1)))
+        let host = NSHostingView(rootView: LauncherView().environmentObject(launcher).framedPanel())
         let fx = NSVisualEffectView()
         fx.material = .popover
         fx.blendingMode = .behindWindow
@@ -127,7 +125,7 @@ struct LauncherView: View {
             Rectangle().fill(Theme.border).frame(height: 1)
             footer
         }
-        .frame(width: 760, height: 480)
+        .frame(width: Theme.panelSize.width, height: Theme.panelSize.height)
         .foregroundStyle(Theme.text)
     }
 

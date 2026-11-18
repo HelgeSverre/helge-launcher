@@ -355,7 +355,7 @@ enum Pasteboard {
     @MainActor private static func sendCmdV() {
         guard !Paths.isTestRunner else { return }
         guard AXIsProcessTrusted() else {
-            PermissionHelper.shared.start()
+            PermissionHelper.shared.requestIfNeeded()
             return
         }
         let src = CGEventSource(stateID: .combinedSessionState)
@@ -377,12 +377,12 @@ enum Pasteboard {
     }
 }
 
-@MainActor func openURL(_ s: String) -> Bool {
+/// Opens a URL, or a file, folder or app path (`~` expanded), with its default handler.
+@MainActor func openURL(_ s: String) {
     let expanded = NSString(string: s).expandingTildeInPath
     if expanded.hasPrefix("/") {
         NSWorkspace.shared.open(URL(fileURLWithPath: expanded))
     } else if let u = URL(string: s) {
         NSWorkspace.shared.open(u)
     }
-    return false
 }

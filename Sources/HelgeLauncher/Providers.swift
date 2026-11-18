@@ -124,7 +124,7 @@ enum UserCommands {
     }
 
     @MainActor static func run(_ c: CommandConfig) {
-        if let o = c.open { _ = openURL(o) }
+        if let o = c.open { openURL(o) }
         if let r = c.run {
             Shell.spawn(r)
         }

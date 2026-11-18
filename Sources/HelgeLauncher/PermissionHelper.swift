@@ -16,7 +16,8 @@ final class PermissionHelper {
 
     var isTrusted: Bool { AXIsProcessTrusted() }
 
-    func start() {
+    /// Opens the helper unless Accessibility is already granted.
+    func requestIfNeeded() {
         guard !isTrusted else { return }
         if let u = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility") {
             NSWorkspace.shared.open(u)
@@ -41,7 +42,6 @@ final class PermissionHelper {
         if isTrusted {
             stop()
             Launcher.shared?.toast("Accessibility enabled")
-            (NSApp.delegate as? AppDelegate)?.permissionsChanged()
             return
         }
         guard let frame = settingsWindowFrame() else {
@@ -89,9 +89,7 @@ final class PermissionHelper {
         host.appearance = NSAppearance(named: .darkAqua)
         host.frame = NSRect(origin: .zero, size: host.fittingSize)
         host.layoutSubtreeIfNeeded()
-        guard let rep = host.bitmapImageRepForCachingDisplay(in: host.bounds) else { return }
-        host.cacheDisplay(in: host.bounds, to: rep)
-        try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: path))
+        CLI.writePNG(host, to: path)
         print("helper size \(host.fittingSize)")
     }
 

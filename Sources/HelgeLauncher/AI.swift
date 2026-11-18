@@ -293,9 +293,6 @@ final class OpenCode: AIBackend {
     private func call(_ path: String, method: String, body: Any?, server serverID: Int) async throws -> [String: Any] {
         guard let server = runningServer, server.id == serverID else { throw AIError.sessionLost }
         let req = try request(path, server: server, method: method, body: body)
-        if ProcessInfo.processInfo.environment["HL_DEBUG"] != nil {
-            FileHandle.standardError.write(Data("→ \(method) \(req.url!.absoluteString)\n".utf8))
-        }
         let (d, resp) = try await URLSession.shared.data(for: req)
         let code = (resp as? HTTPURLResponse)?.statusCode ?? 0
         guard (200..<300).contains(code) else {

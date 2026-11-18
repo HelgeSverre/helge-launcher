@@ -36,6 +36,16 @@ final class Launcher: ObservableObject {
 
     func attach(_ p: LauncherPanel) { panel = p }
 
+    /// Takes a new config; an open plugin that the config no longer has returns to the root search.
+    func apply(_ new: Config) {
+        config = new
+        if case .plugin(let name) = mode, !new.plugin.contains(where: { $0.name == name }) {
+            mode = .root
+            query = ""
+            refresh()
+        }
+    }
+
     func toggle() { panel?.isVisible == true ? hide() : show() }
 
     /// Opens the panel. The AI chat survives hide/show unless a mode or query is given; everything else starts clean.
@@ -86,7 +96,7 @@ final class Launcher: ObservableObject {
             all.append(Item(id: Mode.ai.itemID, title: "AI Chat", subtitle: config.ai.model, icon: .symbol("sparkles"), keywords: ["ask", "ai"], accessory: "Command", opens: .ai))
         }
         all.append(Item(id: "hl.config", title: "Edit Helge Launcher Config", icon: .symbol("gearshape"), keywords: ["settings", "preferences"], accessory: "Command",
-                        actions: [Action(title: "Open") { _ = openURL(Paths.configFile.path); return false }]))
+                        actions: [Action(title: "Open") { openURL(Paths.configFile.path); return false }]))
         all.append(Item(id: "hl.reload", title: "Reload Helge Launcher Config", icon: .symbol("arrow.clockwise"), accessory: "Command",
                         actions: [Action(title: "Reload") { (NSApp.delegate as? AppDelegate)?.reloadConfig(); return true }]))
         return all

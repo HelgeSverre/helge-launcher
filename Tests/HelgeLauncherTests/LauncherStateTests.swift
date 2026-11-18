@@ -131,6 +131,18 @@ final class Box<T> { var value: T; init(_ v: T) { value = v } }
         #expect(l.query == "draft")
     }
 
+    @Test func removingTheOpenPluginReturnsToRoot() {
+        let l = Launcher(ai: FakeAI())
+        var cfg = Config()
+        cfg.plugin = [PluginConfig(name: "Gone", exec: ["/usr/bin/true"])]
+        l.apply(cfg)
+        l.enter(.plugin("Gone"))
+        l.query = "abc"
+        cfg.plugin = []
+        l.apply(cfg)
+        #expect(l.mode == .root && l.query.isEmpty)
+    }
+
     @Test func aiChatRespectsEnabled() {
         let l = Launcher(ai: FakeAI())
         l.config.ai.enabled = false

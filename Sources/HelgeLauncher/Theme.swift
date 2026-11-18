@@ -29,6 +29,7 @@ enum Theme {
     static let err = dynamic(0xEF4444, 0xB83434)
     static let ok = dynamic(0x22C55E, 0x1F7A47)
 
+    static let panelSize = NSSize(width: 760, height: 480)
     static let radiusPanel: CGFloat = 12
     static let radiusRow: CGFloat = 8
     static let radiusSmall: CGFloat = 4
@@ -69,5 +70,13 @@ struct KeyCap: View {
             .frame(minWidth: 20, minHeight: 18)
             .background(RoundedRectangle(cornerRadius: Theme.radiusSmall).fill(Theme.ground))
             .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.borderStrong, lineWidth: 1))
+    }
+}
+
+extension View {
+    /// Panel background and hairline border.
+    func framedPanel() -> some View {
+        background(Theme.surface)
+            .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.border, lineWidth: 1))
     }
 }

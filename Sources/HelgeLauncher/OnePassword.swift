@@ -179,7 +179,7 @@ final class OnePassword {
             return false
         })
         if let href = it.website {
-            actions.append(Action(title: "Open Website") { _ = openURL(href); return false })
+            actions.append(Action(title: "Open Website") { openURL(href); return false })
         }
         let details = [it.additionalInformation, it.vault.name].compactMap { $0 }.filter { !$0.isEmpty }
         return Item(

@@ -53,7 +53,7 @@ enum Plugins {
         let detail = [a.open.map { "open \($0)" }, a.copy.map { "copy \($0)" }, a.paste.map { "paste \($0)" }, a.run.map { "run \($0)" }]
             .compactMap { $0 }.joined(separator: "; ")
         return Action(title: a.title, detail: detail) {
-            if let o = a.open { _ = openURL(o) }
+            if let o = a.open { openURL(o) }
             if let c = a.copy { Pasteboard.copy(c) }
             if let p = a.paste { Pasteboard.paste(p) }
             if let r = a.run { Shell.spawn(r) }
