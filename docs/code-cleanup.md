@@ -15,12 +15,12 @@
 | Gate | Source | Command | Artifact | Baseline |
 |---|---|---|---|---|
 | G1 debug build | CI, justfile | `swift build` | `.build/debug/HelgeLauncher` | pass (sha256 `10cd6d12…`) |
-| G2 tests | CI `Run tests`, justfile | `swift test` | test bundle, debug | pass, 13 tests |
+| G2 tests | CI `Run tests`, justfile | `swift test` | test bundle, debug | baseline 13 pass; be5177d 57 pass ×3 |
 | G3 release bundle | `scripts/bundle.sh` | `just bundle` | `build/Helge Launcher.app` (native, Developer ID signed) | pass |
 | G4 universal signed | `scripts/release.sh --no-notarize` | `just package` | `dist/HelgeLauncher-<v>-universal.zip` | pass at 3a68570 |
 | G5 headless plugins | docs/plugins.md | `HL_CONFIG_DIR=… --plugin <name>` for the 7 examples | debug binary | pass |
 | G6 CI | `.github/workflows/release.yml` (workflow_dispatch) | tests + build + sign + notarize | runner artifact | pass (44380877708) |
-| G7 TSan | added in this task | `swift test --sanitize=thread --disable-xctest` | debug + TSan | not run at baseline |
+| G7 TSan | added in this task | `swift test --sanitize=thread --disable-xctest --filter <concurrency suites>` | debug + TSan | baseline: 2 races (reviewer); 3351017: clean, 31 tests |
 
 ## Machine inventory
 
@@ -41,26 +41,31 @@
 
 ## Issues
 
-| ID | Priority | Root cause / invariant | Reachable trace | Fix / batch | Status |
-|---|---|---|---|---|---|
-| I1 | high | M1 has no owner of the child lifetime: the child outlives the app, a dead child is never restarted, startup can hang, config changes are ignored, state is mutated from several threads | `pkill -x HelgeLauncher` leaves `opencode serve` running (12 orphans found on the dev Mac); kill the child → every AI request fails until relaunch; `opencode` that never prints a URL → "Thinking…" forever; `enabled = false` keeps the child | A1: actor with explicit state; `serve --stdio` with a held stdin pipe (child exits on our death); termination handler → idle; startup timeout races the read; `apply(config)` restarts/stops; owned SSE task | implemented f96694b; tests AITests.OpenCodeLifecycleTests (5); real opencode: --ai answers, SIGKILL of launcher → server exits ≤4 s; 12 orphans removed · Challenge pending |
-| I2 | high | M2 events are routed per session, not per turn; session creation is check-then-await; `newChat` doesn't fence old work | send Q2 while Q1 streams → Q1's tail lands in Q2, Q1 never finishes; ⌘N during session creation → old answer streams into the new chat; two asks on cold start → two sessions | A1: conversation epoch + one in-flight creation task; one prompt in flight per conversation; handler removed on terminal event and on new chat | implemented f96694b; tests AITests.ConversationTests (5) · Challenge pending |
-| I3 | high | M3 async results are applied without checking they still belong to the current mode/request; selection is by index | Esc while a plugin runs → plugin items replace root list, ↵ runs a plugin `run` action; results under an open ⌘K menu switch its item; Pin moves the highlight; click while ⌘K open runs the menu action on the clicked row; 1Password load resets selection | A2: mode setter cancels plugin work; request generation; one `setItems` that keeps selection by id and closes the menu when the item changes | implemented 52d0cf9; LauncherStateTests (8); baseline red by reviewer RaceRepro · Challenge pending |
-| I4 | medium | M4 reads pipes sequentially, ignores cancellation, kills only the direct child | >64 KB stderr → false timeout; cancelled plugin query runs to completion; `cmd &` holding stdout blocks past the timeout | A3: concurrent pipe reads, cancellation handler, own process group killed on timeout/cancel, resume once | implemented c01dcc4; ShellRunTests (5) · Challenge pending |
-| I5 | high (privacy) | M6 treats a 1Password secret like ordinary text and pastes after an unbounded await | `op://` snippet → secret saved in plaintext to clipboard.json and history; slow Touch ID → secret pasted into whichever app is in front later | A3: secret copies concealed + auto-cleared; paste only if the target app is still in front and the launcher wasn't reopened, else copy + notice | implemented c01dcc4; PasteboardTests.SnippetSecretTests (2) · Challenge pending |
-| I6 | medium | M5 mutable state on a non-isolated class | TSan: `loading`/`cached` races between pool and main (reproduced by reviewer) | A3: `@MainActor` with one in-flight refresh task | implemented c01dcc4; OnePasswordTests (1); TSan clean (G7) vs 2 races at baseline · Challenge pending |
-| I7 | medium | M8 watcher only learns include files from a successful load | add `include = ["x.toml"]` before creating it, or break an include → fixing it never reloads | A4: loader reports attempted files on failure too; watcher reset on every load | implemented 1e7c501; ConfigLoadTests (3) · Challenge pending |
-| I8 | medium | M11 records modes under `"mode.\(Mode)"`, not the item id | plugins (`plugin:X`) never gain frecency | A2: record the activated item's id; prefix jump records the plugin id | implemented 52d0cf9; LauncherSelectionTests.enteringAPluginRecordsItsListId · Challenge pending |
-| I9 | low | M7 images are keyed by a fresh UUID; delete doesn't remove the file; `max_items` unvalidated | same image copied 5× → 5 entries/files; deleted images leak on disk | A4: content-hash file names + dedupe; delete removes unreferenced file; clamp `max_items ≥ 1` | implemented 1e7c501; PasteboardTests.ClipboardImageTests (2) · Challenge pending |
-| I10 | low | M10 menu item only refreshed at launch and from the helper | grant Accessibility after closing the helper → "Grant Accessibility…" stays | A4: refresh when the menu opens | implemented 1e7c501; manual (menuWillOpen) — no automated test · Challenge pending |
-| I12 | medium | M8 the default config includes `snippets.toml`, which a new install doesn't have | fresh install → config error on first launch | A4: a missing include counts as empty and stays watched | implemented 1e7c501 (`ConfigLoadTests.missingConfigIsCreatedWithDefaults` found it) · Challenge pending |
-| I11 | low (docs) | M12 `show?q=` keeps AI mode | last state AI chat → `helgelauncher://show?q=x` types into the chat | A2: `show?q` goes to root search | implemented 52d0cf9; LauncherSelectionTests.showWithAQueryLeavesTheAIChat · Challenge pending |
+Status refers to the current head unless a revision is named. "Verified" = fix reviewed by a rotated reviewer and its regression passing at that revision.
+
+| ID | Priority | Root cause / invariant | Reachable trace | Fix | Evidence | Status |
+|---|---|---|---|---|---|---|
+| I1 | high | M1 had no owner of the child lifetime | `pkill -x HelgeLauncher` left `opencode serve` running (12 orphans on the dev Mac); a dead child was never restarted; startup could hang; config changes were ignored | `OpenCode` main-actor owner, idle/starting/running; `serve --stdio` with a held stdin pipe; termination → idle; start task installs `.running` itself after checking the process is alive; startup timeout and cancellation terminate the child; `apply(config)` | OpenCodeLifecycleTests (8); real opencode: `--ai` answers, SIGKILL of launcher → server exits ≤4 s; mutation: joiner test 6/6, stop-during-start 3/3, exit-after-URL 3/5 (timing-dependent) | verified be5177d |
+| I2 | high | M2 events routed per session; check-then-await session creation; no fence on new chat | Q2 while Q1 streams mixed answers; ⌘N during session creation leaked the old answer; cold-start double sessions | `Conversation`: epoch, shared creation task, one prompt in flight, per-turn application, release on terminal/reset; reconnect check finishes prompts accepted >2 s ago whose session is inactive | ConversationTests (5); `active` endpoint shape confirmed against real opencode | verified be5177d |
+| I3 | high | M3 async results applied without checking ownership; selection by index | Esc during a slow plugin → plugin items in root, ↵ runs plugin `run`; ⌘K menu switched item; Pin moved highlight; click with menu open ran the menu action; Tab carried the menu into AI | `mode` didSet cancels plugin work; mode check on results; `items` private(set), only `setItems` (selection by id, menu closes on item change, unique ids) | LauncherStateTests (11); baseline red: reviewer RaceRepro | verified be5177d |
+| I4 | medium | M4 sequential pipe reads, no cancellation, process retained until timeout | 300 KB stderr → false timeout; cancelled plugin query ran on; 100 quick runs held 200 descriptors | concurrent reads, resume-once, cancellation before/after launch, weak timeout capture, pipes closed on exit, `Shell.spawn` for fire-and-forget | ShellRunTests (9); fd test mutation 201→<50 | verified be5177d |
+| I5 | high (privacy) | M6 treated 1Password secrets as ordinary text and pasted after an unbounded await | `op://` snippet secret saved to clipboard.json; slow approval → pasted into a later app | concealed copy + clear_after; `canPaste` requires the same frontmost app and no reopen (`showCount`) | SnippetSecretTests (3) | verified be5177d |
+| I6 | medium | M5 mutable state on a non-isolated class | TSan races on `loading`/`cached` at baseline | `@MainActor`, shared refresh task | OnePasswordTests (1); G7 TSan clean | verified c01dcc4 |
+| I7 | medium | M8 watcher only learned files from a successful load; stamps taken after parsing | broken/missing include never reloaded after fixing; a save during load was missed | `Loaded.stamps` (taken before each read) on every load; watcher reset before the early return | ConfigLoadTests (3); watcher wiring reviewed, not unit-tested | verified be5177d |
+| I8 | medium | M11 recorded modes under `"mode.\(Mode)"` | plugins never gained frecency | `Mode.itemID` shared by root items and `enter` | LauncherSelectionTests.enteringAPluginRecordsItsListId | verified 52d0cf9 |
+| I9 | low | M7 images keyed by fresh UUIDs; delete leaked files; corrupt history deleted every image | same image ×5 → 5 files; deleted images stayed on disk | content-hash names, `remove` deletes unreferenced files, missing image on restore drops the entry, corrupt JSON moved aside, cleanup only in the app's poller | ClipboardImageTests (4); dedupe test mutation-checked | verified be5177d |
+| I10 | low | M10 menu item refreshed only at launch/helper | "Grant Accessibility…" stayed after granting elsewhere | refresh on `menuWillOpen` | manual only | implemented 1e7c501, not unit-tested |
+| I11 | low (docs) | M12 `show?q=` kept AI mode; URL `ai` ignored `enabled`; busy `ai?q=` dropped the question | | `show(query:)` → root; `openAIChat` gated; busy keeps the question | LauncherSelectionTests | verified be5177d |
+| I12 | medium | M8 default config includes `snippets.toml`, absent on a new install | fresh install showed a config error, then (after A5) a permanent warning | missing include counts as empty with a warning; first launch writes an empty `snippets.toml` | ConfigLoadTests.missingConfigIsCreatedWithDefaults | verified be5177d |
 
 ### Hypotheses (not confirmed)
 
 | ID | Note |
 |---|---|
-| Hy1 | Duplicate item ids (same snippet name in two files, plugin duplicate ids) make `ForEach`/`scrollTo` unpredictable. Fold into I3 by de-duplicating ids in `setItems`. |
+| Hy1 | Duplicate item ids: folded into I3 (`setItems` makes ids unique). |
+| Hy5 | A prompt that failed or was interrupted while the event stream was down is reported as done by the reconnect check; deltas buffered at reconnect can be lost. Resuming from the last event id would replace the check; not verified that opencode supports resume. Accepted. |
+| Hy6 | Including `config.toml` from itself duplicates its blocks (unique ids hide it in the list). Accepted. |
+| Hy7 | `stop()`/SIGTERM grandchild cleanup relies on Foundation starting each child in its own process group (confirmed by probe and `timeoutAlsoEndsBackgroundedGrandchildren`). |
 | Hy2 | `restore` within 0.5 s of another app's copy skips that copy in history. Rare; accepted. |
 | Hy3 | Disabling then re-enabling clipboard history records whatever is on the pasteboard. Accepted (records the current item). |
 | Hy4 | Two `copySecret` calls finishing out of order leave the earlier secret on the clipboard. Accepted. |
@@ -71,3 +76,6 @@
 |---|---|---|---|
 | A-Discover | 52c2f0d | lifecycle (AI, AppDelegate, PermissionHelper, Hotkeys) · concurrency (Launcher, Plugins, OnePassword, Shell, Snippets) · consumers (Clipboard, Config, Views, History, AppIndex, docs) | 21 confirmed findings → I1–I11; 3 reproduced by execution (plugin stale results, Shell.run a/b/c, OnePassword TSan) |
 | A batches | f96694b, 52d0cf9, c01dcc4, 1e7c501 | coordinator implemented A1 (I1, I2), A2 (I3, I8, I11), A3 (I4, I5, I6), A4 (I7, I9, I10, I12) | G2: 44 tests pass ×3; G7 TSan clean on 18 concurrency tests |
+| A-Challenge | ed91cf7 | AI fixes (reviewer 3) · Launcher/Shell/1P/snippets (reviewer 1) · model, config, clipboard, docs (reviewer 2) | 8 defects (start-path races, cancel-before-launch, ⌘K→Tab, id suffix, test that couldn't fail, restore of missing image, doc drift) + 10 hypotheses → repaired in 3351017 |
+| A-Verify 1 | 3351017 (delta from ed91cf7) | AI start path (reviewer 1) · Launcher/Shell/snippets/clipboard (reviewer 3) · config + cross-batch + docs (reviewer 2) | 3 defects: fresh-install warning, corrupt history deleted images, descriptor retention until timeout → repaired in be5177d; AI delta: no defects, 2 test gaps closed |
+
