@@ -1,0 +1,139 @@
+name: Release
+
+on:
+  push:
+    tags: ["v[0-9]*"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: launcher-release
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build, sign, and notarize
+    runs-on: macos-15
+    timeout-minutes: 45
+    outputs:
+      version: ${{ steps.meta.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Validate version
+        id: meta
+        run: |
+          version=$(<VERSION)
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          test -s "release-notes/$version.md" || { echo "::error::release-notes/$version.md is missing or empty"; exit 1; }
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            [[ "$GITHUB_REF_NAME" == "v$version" ]] || { echo "::error::tag $GITHUB_REF_NAME does not match VERSION $version"; exit 1; }
+            git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::tag is not on main"; exit 1; }
+          fi
+
+      - name: Import signing credentials
+        env:
+          APPLE_APPLICATION_CERTIFICATE_BASE64: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_BASE64 }}
+          APPLE_APPLICATION_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_APPLICATION_CERTIFICATE_PASSWORD }}
+          APPLE_NOTARY_KEY_BASE64: ${{ secrets.APPLE_NOTARY_KEY_BASE64 }}
+          APPLE_NOTARY_KEY_ID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          APPLE_NOTARY_ISSUER_ID: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          set -euo pipefail
+          work=$(mktemp -d); chmod 700 "$work"
+          keychain="$RUNNER_TEMP/release.keychain-db"
+          kpass=$(uuidgen)
+          printf '%s' "$APPLE_APPLICATION_CERTIFICATE_BASE64" | base64 -D > "$work/app.p12"
+          printf '%s' "$APPLE_NOTARY_KEY_BASE64" | base64 -D > "$work/notary.p8"
+          chmod 600 "$work"/*
+          security create-keychain -p "$kpass" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$kpass" "$keychain"
+          security import "$work/app.p12" -k "$keychain" -P "$APPLE_APPLICATION_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$kpass" "$keychain" >/dev/null
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          xcrun notarytool store-credentials launcher-notary --key "$work/notary.p8" \
+            --key-id "$APPLE_NOTARY_KEY_ID" --issuer "$APPLE_NOTARY_ISSUER_ID" --keychain "$keychain"
+          rm -rf "$work"
+          echo "APPLE_SIGNING_KEYCHAIN=$keychain" >> "$GITHUB_ENV"
+          echo "APPLE_NOTARY_PROFILE=launcher-notary" >> "$GITHUB_ENV"
+
+      - name: Build, sign, notarize, staple
+        env:
+          APPLE_APPLICATION_SIGNING_IDENTITY: ${{ secrets.APPLE_APPLICATION_SIGNING_IDENTITY }}
+        run: scripts/release.sh
+
+      - name: Upload signed artifacts
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: signed-release
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            dist/HelgeLauncher-*-universal.zip
+            dist/SHA256SUMS
+
+      - name: Remove signing credentials
+        if: always()
+        run: |
+          if [[ -n "${APPLE_SIGNING_KEYCHAIN:-}" ]]; then
+            security delete-keychain "$APPLE_SIGNING_KEYCHAIN" || true
+          fi
+
+  publish:
+    name: Publish release and update Homebrew
+    needs: build
+    if: github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8
+        with:
+          name: signed-release
+          path: dist
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          zip="dist/HelgeLauncher-$VERSION-universal.zip"
+          (cd dist && shasum -a 256 -c SHA256SUMS)
+          if gh release view "v$VERSION" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            # Resume a failed run only when the published asset is identical.
+            gh release download "v$VERSION" --repo "$GITHUB_REPOSITORY" --pattern SHA256SUMS --dir existing
+            cmp existing/SHA256SUMS dist/SHA256SUMS || { echo "::error::v$VERSION exists with different assets; bump the version"; exit 1; }
+          else
+            gh release create "v$VERSION" --repo "$GITHUB_REPOSITORY" --title "Helge Launcher $VERSION" \
+              --notes-file "release-notes/$VERSION.md" --verify-tag "$zip" dist/SHA256SUMS
+          fi
+
+      - name: Update Homebrew cask
+        env:
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+          VERSION: ${{ needs.build.outputs.version }}
+        run: |
+          set -euo pipefail
+          sha=$(cut -d ' ' -f 1 dist/SHA256SUMS)
+          path=Casks/helge-launcher.rb
+          current=$(gh api "repos/HelgeSverre/homebrew-tap/contents/$path" --jq .content 2>/dev/null | base64 -d | sed -n 's/^  version "\(.*\)"/\1/p' || true)
+          if [[ -n "$current" ]] && [[ "$(printf '%s\n%s\n' "$current" "$VERSION" | sort -V | tail -1)" != "$VERSION" ]]; then
+            echo "::error::cask is at $current, refusing to downgrade to $VERSION"; exit 1
+          fi
+          sed -e "s/@VERSION@/$VERSION/g" -e "s/@SHA256@/$sha/g" packaging/helge-launcher.rb > cask.rb
+          sha_blob=$(gh api "repos/HelgeSverre/homebrew-tap/contents/$path" --jq .sha 2>/dev/null || true)
+          args=(-f message="helge-launcher $VERSION" -f content="$(base64 -w0 cask.rb)")
+          [[ -n "$sha_blob" ]] && args+=(-f sha="$sha_blob")
+          gh api --method PUT "repos/HelgeSverre/homebrew-tap/contents/$path" "${args[@]}" --jq .commit.html_url
