@@ -109,3 +109,34 @@ Closed at 8065309: every confirmed finding is fixed and verified, except I10 (im
 - `sendCmdV` should be a no-op under test runners (no test calls it today)
 - the per-run test pasteboard is never released (hygiene)
 
+## Sweep B: module depth
+
+Discover at f545f01 (three clusters: AI + app shell; launcher, items and UI; config, clipboard, 1Password, processes). Provenance: every changed surface is internal to the app target; the only external contracts are `config.toml` keys, `clipboard.json`, `history.json` ids, the plugin JSON protocol, the CLI flags in README/docs and the environment variables, all unchanged.
+
+| Module / cluster | Caller knowledge before | Decision (deletion test) | After | Removed surface | Evidence | Disposition |
+|---|---|---|---|---|---|---|
+| Config sub-structs | 25 hand-written `decodeIfPresent ?? default` lines; `DynKey` for one key | keep, deepen | `KeyedDecodingContainer.value(_:or:)`; `CleanShotConfig` has CodingKeys | `DynKey`, `TOMLDecoderShim`, `Paths.pluginDir`, `Paths.expand`, `Loaded.files`, `ConfigWatcher.stamp` | ConfigParsing, ConfigLoadTests | changed B1 |
+| ConfigLoader / ConfigWatcher | two parse paths; loader depended on the watcher for `stamp` | keep | `parse(text:)` is the one decode; loader owns `stamp`; `Paths.resolve` for includes and `HL_DATA_DIR` | — | ConfigLoadTests | changed B1 |
+| Pasteboard | callers paired `copy(concealed:)` with `clear(after:)` and repeated hide + delayed ⌘V | deepen | `copySecret`, `pasteSecret`, `paste`, `pasteCurrent`; `sendCmdV`/`clear`/`write` private; one concealed type and skip set | `concealed:` parameters, public `clear`, public `sendCmdV` | PasteboardTests | changed B1 |
+| OnePassword | category strings compared in 4 places; unused `force:` | keep, deepen | `Category` owns secret field/label, OTP rule, symbol, display name; `additionalInformation` | `refresh(force:)`, public `cached`/`lastError` | OnePasswordTests | changed B1 |
+| ClipboardHistory.Entry.kind | string literals in 9 places | deepen (compat: serialized) | `Kind` raw-value wrapper, round-trips unknown values; `Kind.classify` | — (JSON byte-identical; real 33-entry file verified) | unknownKindsRoundTrip | changed B1 |
+| Shell | `stdin:` parameter nobody passed; PATH resolved on first use (main thread) | keep | `run` without `stdin`; `resolvedPath()` off the main thread | `stdin:` | ShellRunTests | changed B1 |
+| ResumeOnce / LockedBuffer / LockedFlag | lived in AI.swift, used by Shell | move | `Sync.swift` | — | build | changed B1 |
+| AppDelegate (was main.swift) | config status written in 3 places (one dead); hotkey unregister/register/collect in the caller; raw key codes; `permissionsChanged` called up from PermissionHelper | deepen | `showConfigStatus`; `Hotkeys.replace(with:)`; `kVK_*` table; menu refreshed in `menuWillOpen` only; `item()` builder | `permissionsChanged`, `reloadFromMenu`, `keyMonitor` | 69 tests + manual menu check pending | changed B2 |
+| CLI + render (was main.swift) | two argument parsers and two mode tables | merge | `CLI.swift`: one parser, one mode table, one PNG writer | duplicate parsers | all CLI paths run | changed B2 |
+| Hotkeys | callers knew unregister-then-register order | deepen | `replace(with:) -> [String]`; `register` private | public `unregisterAll`, `register` | parse tests | changed B2 |
+| PermissionHelper | callers pre-checked `AXIsProcessTrusted` | deepen | `requestIfNeeded()`; `isTrusted` | `start()` | render check | changed B2 |
+| Launcher | root mode items built inline; history recorded in every action closure; Bool "keep open" | deepen (not split) | `Mode.entries`; `run(_:action:)` records `historyKey`; `Action.Outcome`; `apply(config)` leaves removed plugins | `Plugins.entry`, `Plugins.icon` | LauncherSelectionTests | changed B3 |
+| Item / Action / Mode / ItemIcon | two icon-spec rules; unused `.image` | deepen | `ItemIcon(spec:)`; `Item.historyKey`; `Mode.entry` | `ItemIcon.image`, `rank` default limit | iconSpecs, modeEntriesKeepTheirIds, activationRecordsTheHistoryKeyOnly | changed B3 |
+| Snippets / Placeholders | placeholder expansion mixed with 1Password delivery | split | `Placeholders.expand`; `Snippets` keeps expand/deliver/items | `Snippets.placeholders` | SnippetPlaceholders | changed B3 |
+| Theme / Views | unused tokens; 760×480 in 3 places; radius 6 literal ×3; frame duplicated | keep, prune | `panelSize`, `radiusChip`, `framedPanel()`; `roundedMask` in Theme; `KeyCap` in Views | `hover`, `ok`, `accent`, `Color.panelFill` | renders unchanged | changed B3 |
+| Conversation, OpenCode, AIBackend, Fuzzy, History, AppIndex, CleanShot, UserCommands, Emoji, Plugins.query | — | keep (deep or leaf; deletion moves behaviour to callers) | unchanged apart from formatting/comments | — | existing tests | inspected, kept |
+| `Launcher.shared` injection, single keymap, pure Catalog | — | deferred | — | — | reasons: broad change touching the I5 paste path; the field editor and the app key monitor sit on different event paths; the Ask-AI item needs the launcher | deferred |
+
+Sweep A residuals handled in Sweep B: removed plugin while open (B2, test), `sendCmdV` no-op under test runners (B1), PATH on the main thread (B1, reviewer finding R5). Not done: releasing the per-run test pasteboard (hygiene).
+
+| Round | Snapshot | Assignments | Result |
+|---|---|---|---|
+| B-Discover | f545f01 | AI + app shell · launcher/items/UI · config/clipboard/1P/processes | dispositions above; one behaviour defect found (PATH on main thread) |
+| B batches | 7b7738b (B1), 6898cf7 (B2), 19ee671 (B3), e3266fc (B4) | coordinator | 72 tests ×2; renders unchanged; real clipboard.json compatible; lint clean |
+

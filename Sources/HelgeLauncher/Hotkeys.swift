@@ -44,7 +44,7 @@ final class Hotkeys {
     /// Unregisters every hotkey, then registers `bindings` in order. Returns one message per binding
     /// that is invalid or already taken by another app.
     func replace(with bindings: [(String, () -> Void)]) -> [String] {
-        refs.forEach { UnregisterEventHotKey($0) }
+        for ref in refs { UnregisterEventHotKey(ref) }
         refs.removeAll()
         actions.removeAll()
         return bindings.compactMap { register($0.0, $0.1) }
