@@ -128,17 +128,7 @@ enum CLI {
         AppIndex.shared.scan()
         l.mode = mode(args.value("--mode"))
         if l.mode == .ai {
-            l.conversation = Conversation(
-                backend: OpenCode.shared,
-                turns: [
-                    ChatTurn(
-                        question: "What does `open -a` do?",
-                        answer:
-                            "`open -a` launches the named application (for example `open -a Safari`) and can open files or URLs with it.",
-                        done: true
-                    )
-                ]
-            )
+            l.conversation = Conversation(backend: OpenCode.shared, turns: [sampleTurn])
         }
         l.query = args.value("--search") ?? ""
         if l.mode != .ai { l.setItems(l.computeItems(), keepSelection: false) }
@@ -155,6 +145,12 @@ enum CLI {
         RunLoop.main.run(until: Date().addingTimeInterval(0.3))
         writePNG(host, to: path)
     }
+
+    private static let sampleTurn = ChatTurn(
+        question: "What does `open -a` do?",
+        answer: "`open -a` launches the named application and can open files or URLs with it.",
+        done: true
+    )
 
     static func writePNG(_ view: NSView, to path: String) {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }

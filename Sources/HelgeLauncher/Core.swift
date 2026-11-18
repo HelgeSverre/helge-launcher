@@ -92,7 +92,8 @@ enum Mode: Equatable {
                 icon: .symbol(symbol),
                 keywords: keywords,
                 accessory: "Command",
-                opens: self
+                opens: self,
+                historyKey: itemID
             )
         }
         switch self {
@@ -124,7 +125,8 @@ enum Mode: Equatable {
                 icon: ItemIcon(spec: p.icon ?? "puzzlepiece.extension"),
                 keywords: [p.prefix].compactMap { $0 },
                 accessory: "Plugin",
-                opens: self
+                opens: self,
+                historyKey: itemID
             )
         }
     }
@@ -142,7 +144,7 @@ struct Item: Identifiable {
     /// Opens a mode instead of running an action.
     var opens: Mode?
     var preview: String?
-    /// Frecency key recorded when one of the item's actions runs; nil records nothing.
+    /// Frecency key: recorded when the item is used, read when ranking. nil: not ranked by use.
     var historyKey: String?
     var score: Double = 0
 }
@@ -230,10 +232,10 @@ func rank(_ items: [Item], query: String, limit: Int) -> [Item] {
     var out: [Item] = []
     for var it in items {
         if q.isEmpty {
-            it.score = History.shared.boost(it.id)
+            it.score = it.historyKey.map(History.shared.boost) ?? 0
         } else {
             guard let s = Fuzzy.best(q, it) else { continue }
-            it.score = s + History.shared.boost(it.id) * 1.5
+            it.score = s + (it.historyKey.map(History.shared.boost) ?? 0) * 1.5
         }
         out.append(it)
     }
@@ -241,7 +243,7 @@ func rank(_ items: [Item], query: String, limit: Int) -> [Item] {
     return Array(out.prefix(limit))
 }
 
-// MARK: - Helpers
+// MARK: - Processes and pasteboard
 
 enum Shell {
     struct Failure: LocalizedError {

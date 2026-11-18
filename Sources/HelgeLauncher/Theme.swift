@@ -90,3 +90,23 @@ extension NSImage {
         return img
     }
 }
+
+extension NSVisualEffectView {
+    /// Rounded blur container filled edge to edge by `content`.
+    static func panel(containing content: NSView) -> NSVisualEffectView {
+        let fx = NSVisualEffectView()
+        fx.material = .popover
+        fx.blendingMode = .behindWindow
+        fx.state = .active
+        fx.maskImage = .roundedMask(radius: Theme.radiusPanel)
+        content.translatesAutoresizingMaskIntoConstraints = false
+        fx.addSubview(content)
+        NSLayoutConstraint.activate([
+            content.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
+            content.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
+            content.topAnchor.constraint(equalTo: fx.topAnchor),
+            content.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
+        ])
+        return fx
+    }
+}

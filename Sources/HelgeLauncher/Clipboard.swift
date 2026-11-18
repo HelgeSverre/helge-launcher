@@ -1,7 +1,7 @@
 import AppKit
 import CryptoKit
 
-/// Polls NSPasteboard.changeCount and keeps a persisted history of text, links, files and images.
+/// Polls the pasteboard's changeCount and keeps a persisted history of text, links, files and images.
 final class ClipboardHistory {
     static let shared = ClipboardHistory()
 

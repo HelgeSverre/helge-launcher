@@ -58,18 +58,32 @@ final class Box<T> {
         #expect(!l.showActions)
     }
 
+    /// Actions return `.close`, so the list is never rebuilt from the real catalog.
     @Test func activationRecordsTheHistoryKeyOnly() {
         let l = Launcher(ai: FakeAI())
         let key = "test:\(UUID().uuidString)"
-        var keyed = item("keyed")
-        keyed.historyKey = key
-        let plain = item("plain-\(UUID().uuidString)")
-        l.setItems([keyed, plain], keepSelection: false)
+        let ran = Box<[String]>([])
+        func closing(_ id: String, key: String?) -> Item {
+            Item(
+                id: id,
+                title: id,
+                actions: [
+                    Action(title: "Run") {
+                        ran.value.append(id)
+                        return .close
+                    }
+                ],
+                historyKey: key
+            )
+        }
+        let plainID = "plain-\(UUID().uuidString)"
+        l.setItems([closing("keyed", key: key), closing(plainID, key: nil)], keepSelection: false)
         l.activate()
-        #expect(History.shared.boost(key) > 0)
         l.selected = 1
         l.activate()
-        #expect(History.shared.boost(plain.id) == 0)
+        #expect(ran.value == ["keyed", plainID])
+        #expect(History.shared.boost(key) > 0)
+        #expect(History.shared.boost(plainID) == 0)
     }
 
     @Test func modeEntriesKeepTheirIds() {

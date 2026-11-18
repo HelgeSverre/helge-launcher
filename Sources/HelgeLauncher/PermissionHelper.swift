@@ -44,7 +44,7 @@ final class PermissionHelper {
             return
         }
         guard let frame = settingsWindowFrame() else {
-            // Settings gets 8 s to open.
+            // Waits 8 s for Settings to open; closes once Settings closes.
             if sawSettings || Date().timeIntervalSince(started) > 8 { stop() } else { panel?.orderOut(nil) }
             return
         }
@@ -111,20 +111,8 @@ final class PermissionHelper {
         p.hidesOnDeactivate = false
         p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
 
-        let fx = NSVisualEffectView()
-        fx.material = .popover
-        fx.blendingMode = .behindWindow
-        fx.state = .active
-        fx.maskImage = .roundedMask(radius: Theme.radiusPanel)
-
         let host = NSHostingView(rootView: HelperView(onClose: { [weak self] in self?.stop() }))
-        host.translatesAutoresizingMaskIntoConstraints = false
-        fx.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
-            host.topAnchor.constraint(equalTo: fx.topAnchor), host.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
-        ])
+        let fx = NSVisualEffectView.panel(containing: host)
         p.contentView = fx
         p.setContentSize(host.fittingSize)
         p.invalidateShadow()
@@ -157,8 +145,7 @@ private struct HelperView: View {
         .padding(.leading, 12)
         .padding(.trailing, 14)
         .fixedSize()
-        .background(Theme.surface)
-        .overlay(RoundedRectangle(cornerRadius: Theme.radiusPanel).strokeBorder(Theme.border, lineWidth: 1))
+        .framedPanel()
     }
 }
 

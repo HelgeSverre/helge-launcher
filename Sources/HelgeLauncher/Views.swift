@@ -19,18 +19,7 @@ final class LauncherPanel: NSPanel, NSWindowDelegate {
         delegate = self
 
         let host = NSHostingView(rootView: LauncherView().environmentObject(launcher).framedPanel())
-        let fx = NSVisualEffectView()
-        fx.material = .popover
-        fx.blendingMode = .behindWindow
-        fx.state = .active
-        fx.maskImage = .roundedMask(radius: Theme.radiusPanel)
-        host.translatesAutoresizingMaskIntoConstraints = false
-        fx.addSubview(host)
-        NSLayoutConstraint.activate([
-            host.leadingAnchor.constraint(equalTo: fx.leadingAnchor),
-            host.trailingAnchor.constraint(equalTo: fx.trailingAnchor),
-            host.topAnchor.constraint(equalTo: fx.topAnchor), host.bottomAnchor.constraint(equalTo: fx.bottomAnchor),
-        ])
+        let fx = NSVisualEffectView.panel(containing: host)
         contentView = fx
     }
 
