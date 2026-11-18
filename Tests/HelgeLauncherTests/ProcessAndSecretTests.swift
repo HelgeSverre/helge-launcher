@@ -74,7 +74,8 @@ func executable(_ body: String) throws -> String {
     }
 }
 
-@Suite(.serialized) @MainActor struct SnippetSecretTests {
+extension PasteboardTests {
+@Suite @MainActor struct SnippetSecretTests {
     @Test func secretsAreConcealedSkippedByHistoryAndCleared() async throws {
         let saved = NSPasteboard.general.string(forType: .string)
         defer {
@@ -106,4 +107,5 @@ func executable(_ body: String) throws -> String {
         #expect(!(NSPasteboard.general.types ?? []).contains(NSPasteboard.PasteboardType("org.nspasteboard.ConcealedType")))
         #expect(NSPasteboard.general.string(forType: .string) == "plain")
     }
+}
 }

@@ -193,9 +193,9 @@ enum Paths {
         return u
     }()
 
-    static func expand(_ p: String) -> String {
+    static func expand(_ p: String, relativeTo dir: URL = configDir) -> String {
         let e = NSString(string: p).expandingTildeInPath
-        return e.hasPrefix("/") ? e : configDir.appendingPathComponent(e).path
+        return e.hasPrefix("/") ? e : dir.appendingPathComponent(e).path
     }
 }
 
@@ -222,25 +222,41 @@ enum ConfigLoader {
     # prefix = "ex"
     """
 
-    /// Loads config.toml plus any `include`d files; included arrays are appended.
-    static func load() -> (Config, String?) {
+    struct Loaded {
+        /// nil when a file failed to parse.
+        var config: Config?
+        var error: String?
+        /// Every file the load read or tried to read; watch these for changes.
+        var files: [URL]
+    }
+
+    /// Loads `config.toml` (created with defaults if missing) and its `include`d files, whose
+    /// `[[command]]`, `[[snippet]]` and `[[plugin]]` blocks are appended. A missing include counts as empty.
+    static func load(from dir: URL = Paths.configDir) -> Loaded {
         let fm = FileManager.default
-        try? fm.createDirectory(at: Paths.configDir, withIntermediateDirectories: true)
-        if !fm.fileExists(atPath: Paths.configFile.path) {
-            try? defaultConfig.write(to: Paths.configFile, atomically: true, encoding: .utf8)
+        let main = dir.appendingPathComponent("config.toml")
+        try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        if !fm.fileExists(atPath: main.path) {
+            try? defaultConfig.write(to: main, atomically: true, encoding: .utf8)
         }
+        var cfg: Config
         do {
-            var cfg = try parse(Paths.configFile)
-            for inc in cfg.include {
-                let extra = try parse(URL(fileURLWithPath: Paths.expand(inc)))
+            cfg = try parse(main)
+        } catch {
+            return Loaded(config: nil, error: "\(error)", files: [main])
+        }
+        let includes = cfg.include.map { URL(fileURLWithPath: Paths.expand($0, relativeTo: dir)) }
+        do {
+            for url in includes where fm.fileExists(atPath: url.path) {
+                let extra = try parse(url)
                 cfg.command += extra.command
                 cfg.snippet += extra.snippet
                 cfg.plugin += extra.plugin
             }
-            return (cfg, nil)
         } catch {
-            return (Config(), "\(error)")
+            return Loaded(config: nil, error: "\(error)", files: [main] + includes)
         }
+        return Loaded(config: cfg, error: nil, files: [main] + includes)
     }
 
     static func parse(_ url: URL) throws -> Config {

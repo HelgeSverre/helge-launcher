@@ -53,6 +53,7 @@
 | I8 | medium | M11 records modes under `"mode.\(Mode)"`, not the item id | plugins (`plugin:X`) never gain frecency | A2: record the activated item's id; prefix jump records the plugin id | open |
 | I9 | low | M7 images are keyed by a fresh UUID; delete doesn't remove the file; `max_items` unvalidated | same image copied 5× → 5 entries/files; deleted images leak on disk | A4: content-hash file names + dedupe; delete removes unreferenced file; clamp `max_items ≥ 1` | open |
 | I10 | low | M10 menu item only refreshed at launch and from the helper | grant Accessibility after closing the helper → "Grant Accessibility…" stays | A4: refresh when the menu opens | open |
+| I12 | medium | M8 the default config includes `snippets.toml`, which a new install doesn't have | fresh install → config error on first launch | A4: a missing include counts as empty and stays watched | fixed in A4 (`ConfigLoadTests.missingConfigIsCreatedWithDefaults` found it) |
 | I11 | low (docs) | M12 `show?q=` keeps AI mode | last state AI chat → `helgelauncher://show?q=x` types into the chat | A2: `show?q` goes to root search | open |
 
 ### Hypotheses (not confirmed)

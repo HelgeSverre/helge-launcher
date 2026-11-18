@@ -58,7 +58,7 @@ prefix = "="
 |---|---|---|---|
 | `hotkey` | [hotkey](#hotkeys) | `"cmd+space"` | Toggles the launcher. Turn off Spotlight's ⌘Space first (System Settings → Keyboard → Keyboard Shortcuts → Spotlight). |
 | `launch_at_login` | bool | `false` | Registers the app as a login item (System Settings → General → Login Items). |
-| `include` | list of paths | `[]` | Extra TOML files, relative to the config directory or with `~`. Their `[[snippet]]`, `[[command]]` and `[[plugin]]` blocks are added to this file's; any other settings in them are ignored. |
+| `include` | list of paths | `[]` | Extra TOML files, relative to the config directory or with `~`. Their `[[snippet]]`, `[[command]]` and `[[plugin]]` blocks are added to this file's; any other settings in them are ignored. A file that doesn't exist yet counts as empty and is picked up when you create it. |
 
 ## `[ai]`
 

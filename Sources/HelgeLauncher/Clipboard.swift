@@ -1,4 +1,5 @@
 import AppKit
+import CryptoKit
 
 /// Polls NSPasteboard.changeCount and keeps a persisted history of text, links, files and images.
 final class ClipboardHistory {
@@ -51,12 +52,12 @@ final class ClipboardHistory {
             entry = Entry(id: UUID().uuidString, kind: kind, text: s, app: app, date: now)
         } else if let img = NSImage(pasteboard: pb), let tiff = img.tiffRepresentation,
                   let png = NSBitmapImageRep(data: tiff)?.representation(using: .png, properties: [:]) {
-            let name = UUID().uuidString + ".png"
-            try? png.write(to: imageDir.appendingPathComponent(name))
+            let name = SHA256.hash(data: png).map { String(format: "%02x", $0) }.joined() + ".png"
+            let file = imageDir.appendingPathComponent(name)
+            if !FileManager.default.fileExists(atPath: file.path) { try? png.write(to: file) }
             entry = Entry(id: UUID().uuidString, kind: "image", text: name, app: app, date: now)
         }
         guard var e = entry else { return }
-        // Re-copying moves the existing entry to the top.
         if let i = entries.firstIndex(where: { $0.kind == e.kind && $0.text == e.text }) {
             e.pinned = entries[i].pinned
             entries.remove(at: i)
@@ -68,16 +69,25 @@ final class ClipboardHistory {
 
     private var now: Double { Date().timeIntervalSince1970 }
 
+    /// Keeps every pinned entry and the newest `max_items` (at least 1) unpinned ones.
     private func trim() {
+        let limit = max(1, config.maxItems)
         var unpinned = 0
-        entries = entries.filter { e in
-            if e.pinned { return true }
+        let removed = entries.filter { e in
+            if e.pinned { return false }
             unpinned += 1
-            if unpinned > config.maxItems {
-                if e.kind == "image" { try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(e.text)) }
-                return false
-            }
-            return true
+            return unpinned > limit
+        }
+        remove(Set(removed.map(\.id)))
+    }
+
+    /// Removes entries and any image file no remaining entry references.
+    private func remove(_ ids: Set<String>) {
+        guard !ids.isEmpty else { return }
+        let gone = entries.filter { ids.contains($0.id) }
+        entries.removeAll { ids.contains($0.id) }
+        for e in gone where e.kind == "image" && !entries.contains(where: { $0.kind == "image" && $0.text == e.text }) {
+            try? FileManager.default.removeItem(at: imageDir.appendingPathComponent(e.text))
         }
     }
 
@@ -92,7 +102,7 @@ final class ClipboardHistory {
     }
 
     func delete(_ id: String) {
-        entries.removeAll { $0.id == id }
+        remove([id])
         save()
     }
 

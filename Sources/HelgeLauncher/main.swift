@@ -3,7 +3,7 @@ import ServiceManagement
 import SwiftUI
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
     let launcher = Launcher()
     var panel: LauncherPanel!
     var statusItem: NSStatusItem!
@@ -48,6 +48,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ n: Notification) { OpenCode.shared.stop() }
 
+    func menuWillOpen(_ menu: NSMenu) { permissionsChanged() }
+
     func permissionsChanged() {
         statusItem.menu?.item(withTag: 2)?.isHidden = AXIsProcessTrusted()
     }
@@ -73,8 +75,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var hasGoodConfig = false
 
     func reloadConfig() {
-        let (cfg, err) = ConfigLoader.load()
-        // A broken edit keeps the last good config running; the error shows in the footer and menu.
+        let loaded = ConfigLoader.load()
+        watcher?.reset(files: loaded.files)
+        let err = loaded.error
         if let err, hasGoodConfig {
             launcher.configError = err
             statusItem.menu?.item(withTag: 1)?.title = "Config: \(err)"
@@ -82,6 +85,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
         hasGoodConfig = hasGoodConfig || err == nil
+        let cfg = loaded.config ?? Config()
         launcher.config = cfg
         launcher.configError = err
         ClipboardHistory.shared.config = cfg.clipboard
@@ -106,7 +110,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if !cfg.launchAtLogin, svc.status == .enabled { try? svc.unregister() }
         }
 
-        watcher?.reset(files: [Paths.configFile] + cfg.include.map { URL(fileURLWithPath: Paths.expand($0)) })
         statusItem.menu?.item(withTag: 1)?.title = problems.isEmpty ? "Config OK" : "Config: \(problems.joined(separator: "; "))"
         if !problems.isEmpty { NSLog("Helge Launcher config: %@", problems.joined(separator: "; ")) }
     }
@@ -136,6 +139,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         m.addItem(ax)
         m.addItem(.separator())
         m.addItem(withTitle: "Quit", action: #selector(NSApplication.terminate(_:)), keyEquivalent: "q")
+        m.delegate = self
         statusItem.menu = m
     }
 
@@ -148,7 +152,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @MainActor
 func renderLauncher(_ args: [String], to path: String) {
     func arg(_ n: String) -> String? { args.firstIndex(of: n).flatMap { $0 + 1 < args.count ? args[$0 + 1] : nil } }
-    let (cfg, _) = ConfigLoader.load()
+    let cfg = ConfigLoader.load().config ?? Config()
     let l = Launcher()
     l.config = cfg
     AppIndex.shared.scan()
@@ -191,8 +195,9 @@ func runCLI(_ args: [String]) async -> Int32 {
         guard let i = args.firstIndex(of: name), i + 1 < args.count else { return nil }
         return args[i + 1]
     }
-    let (cfg, err) = ConfigLoader.load()
-    if let err { print("config error: \(err)") }
+    let loaded = ConfigLoader.load()
+    if let err = loaded.error { print("config error: \(err)") }
+    let cfg = loaded.config ?? Config()
     OnePassword.shared.config = cfg.onepassword
 
     if let text = arg("--expand") {
