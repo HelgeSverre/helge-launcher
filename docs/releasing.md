@@ -46,6 +46,6 @@ Recovery source: Helge's **Personal** 1Password vault, item **Helge Launcher Rel
 | `APPLE_NOTARY_KEY_ID` | API key ID |
 | `APPLE_NOTARY_ISSUER_ID` | API issuer ID |
 | `APPLE_TEAM_ID` | Apple developer team ID |
-| `HOMEBREW_TAP_TOKEN` | Fine-grained token: homebrew-tap Contents RW, Metadata R |
+| `HOMEBREW_TAP_TOKEN` | Fine-grained token `helge-launcher-homebrew-tap`: homebrew-tap only, Contents RW, Metadata R, no expiry |
 
 The signing job imports the certificate into a temporary Keychain, stores the notary profile there, deletes the import files, and deletes the Keychain at the end even on failure. Only the ZIP and `SHA256SUMS` are uploaded as artifacts.
