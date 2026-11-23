@@ -2,14 +2,20 @@ import Foundation
 
 enum AIEvent: Equatable {
     case delta(String)
-    case tool(String)
+    /// The model started or stopped reasoning.
+    case thinking(Bool)
+    case toolStarted(id: String, name: String)
+    /// What the tool was asked: a search query or a URL.
+    case toolInput(id: String, detail: String)
+    /// `count`: search results, when the tool reports them.
+    case toolEnded(id: String, ok: Bool, count: Int?, error: String?)
     case done
     case failed(String)
 
     var isTerminal: Bool {
         switch self {
         case .done, .failed: return true
-        case .delta, .tool: return false
+        default: return false
         }
     }
 }
@@ -334,10 +340,12 @@ final class OpenCode: AIBackend {
     private func subscribe(_ server: Server) -> Task<Void, Never> {
         let types = [
             "session.text.delta", "session.tool.called", "session.execution.succeeded",
-            "session.execution.failed", "session.execution.interrupted",
+            "session.execution.failed", "session.execution.interrupted", "session.reasoning.started",
+            "session.reasoning.ended", "session.tool.input.started", "session.tool.success", "session.tool.failed",
         ]
         var comps = URLComponents(url: server.url.appendingPathComponent("api/event"), resolvingAgainstBaseURL: false)!
-        comps.queryItems = types.map { URLQueryItem(name: "types", value: $0) }
+        let dump = ProcessInfo.processInfo.environment["HL_AI_EVENTS"] != nil
+        comps.queryItems = dump ? [] : types.map { URLQueryItem(name: "types", value: $0) }
         guard var req = try? request("api/event", server: server) else { return Task {} }
         req.url = comps.url
         req.timeoutInterval = .infinity
@@ -348,6 +356,7 @@ final class OpenCode: AIBackend {
                     if (resp as? HTTPURLResponse)?.statusCode == 200 {
                         await self?.finishInactiveSessions(server)
                         for try await line in bytes.lines where line.hasPrefix("data:") {
+                            if dump { FileHandle.standardError.write(Data((line + "\n").utf8)) }
                             self?.dispatch(Data(line.dropFirst(5).utf8))
                         }
                     }
@@ -355,6 +364,21 @@ final class OpenCode: AIBackend {
                 try? await Task.sleep(nanoseconds: 1_000_000_000)
             }
         }
+    }
+
+    /// The input that says what a tool did: a query, a URL, else the first text value.
+    nonisolated static func detail(_ input: Any?) -> String {
+        guard let d = input as? [String: Any] else { return "" }
+        for key in ["query", "url", "q", "path", "command"] { if let v = d[key] as? String { return v } }
+        return d.values.compactMap { $0 as? String }.first ?? ""
+    }
+
+    /// Web search results come back as one "## [title](url)" heading per hit.
+    nonisolated static func resultCount(_ content: Any?) -> Int? {
+        guard let parts = content as? [[String: Any]] else { return nil }
+        let text = parts.compactMap { $0["text"] as? String }.joined(separator: "\n")
+        let n = text.components(separatedBy: "\n").filter { $0.hasPrefix("## [") }.count
+        return n > 0 ? n : nil
     }
 
     private func dispatch(_ json: Data) {
@@ -367,10 +391,27 @@ final class OpenCode: AIBackend {
         let event: AIEvent
         switch type {
         case "session.text.delta": event = .delta(data["delta"] as? String ?? "")
-        case "session.tool.called": event = .tool((data["tool"] as? String) ?? (data["name"] as? String) ?? "tool")
+        case "session.reasoning.started": event = .thinking(true)
+        case "session.reasoning.ended": event = .thinking(false)
+        case "session.tool.input.started":
+            event = .toolStarted(id: data["id"] as? String ?? "", name: data["name"] as? String ?? "tool")
+        case "session.tool.called":
+            event = .toolInput(id: data["id"] as? String ?? "", detail: OpenCode.detail(data["input"]))
+        case "session.tool.success":
+            event = .toolEnded(
+                id: data["id"] as? String ?? "",
+                ok: true,
+                count: OpenCode.resultCount(data["content"]),
+                error: nil
+            )
+        case "session.tool.failed":
+            let message = (data["error"] as? [String: Any])?["message"] as? String
+            event = .toolEnded(id: data["id"] as? String ?? "", ok: false, count: nil, error: message)
         case "session.execution.succeeded", "session.execution.interrupted": event = .done
-        default:
+        case "session.execution.failed":
             event = .failed((data["error"] as? [String: Any])?["message"] as? String ?? "\(data["error"] ?? "failed")")
+        default:
+            return
         }
         if event.isTerminal { handlers[sid] = nil }
         handler(event)

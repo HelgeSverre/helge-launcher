@@ -91,7 +91,8 @@ final class Box<T> {
         cfg.plugin = [PluginConfig(name: "Units", exec: ["x"], prefix: "u")]
         #expect(
             Mode.entries(cfg).map(\.id) == [
-                "mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "plugin:Units",
+                "mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "mode.chats",
+                "plugin:Units",
             ]
         )
         cfg.ai.enabled = false

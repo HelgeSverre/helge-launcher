@@ -31,6 +31,17 @@ enum Theme {
     static let warn = dynamic(0xEAB308, 0xA9520C)
     static let err = dynamic(0xEF4444, 0xB83434)
 
+    // Code
+    static let synKeyword = dynamic(0xE8C547, 0x8A6A00)
+    static let synString = dynamic(0xA8D58F, 0x3F7A2E)
+    static let synType = dynamic(0x8FC1E8, 0x1F6AA5)
+    static let synNumber = dynamic(0xF0A36B, 0xB4561C)
+    static let synFunction = dynamic(0xC9B6F2, 0x6E48B8)
+    static let synRemoved = dynamic(0xF0A3A0, 0x9B2F25)
+    static let addedBackground = dynamic(0x6EBE64, 0x2F6A22, darkAlpha: 0.14, lightAlpha: 0.10)
+    static let removedBackground = dynamic(0xEF4444, 0x9B2F25, darkAlpha: 0.13, lightAlpha: 0.10)
+    static let note = dynamic(0x8FC1E8, 0x1F6AA5)
+
     static let panelSize = NSSize(width: 760, height: 480)
     static let radiusPanel: CGFloat = 12
     static let radiusRow: CGFloat = 8

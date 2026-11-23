@@ -1,4 +1,5 @@
 import AppKit
+import Calc
 import SwiftUI
 
 /// Headless entry points:
@@ -17,7 +18,9 @@ enum CLI {
         func has(_ flag: String) -> Bool { raw.contains(flag) }
     }
 
-    static let commands = ["--search", "--ai", "--mode", "--plugin", "--expand", "--render", "--render-helper"]
+    static let commands = [
+        "--search", "--ai", "--mode", "--plugin", "--expand", "--render", "--render-helper", "--calc",
+    ]
 
     static func handles(_ args: [String]) -> Bool { commands.contains(where: args.contains) }
 
@@ -39,6 +42,7 @@ enum CLI {
             return 0
         }
         if let text = args.value("--expand") { return await expand(text) }
+        if let q = args.value("--calc") { return calc(q, cfg) }
         if let name = args.value("--plugin") { return await plugin(name, cfg, query: args.value("--search") ?? "") }
         if let q = args.value("--ai") { return await ask(q, cfg) }
         return await search(cfg, args)
@@ -51,7 +55,28 @@ enum CLI {
         case "clipboard": return .clipboard
         case "onepassword": return .onepassword
         case "ai": return .ai
+        case "chats": return .chats
         default: return .root
+        }
+    }
+
+    /// Prints the answer, its reading and any other readings; exit 1 when there is no answer.
+    private static func calc(_ q: String, _ cfg: Config) -> Int32 {
+        switch Calculator.evaluate(q, CalcProvider.context(cfg.calculator, previous: nil)) {
+        case .none:
+            print("(not a calculation)")
+            return 1
+        case .error(let m):
+            print("error: \(m)")
+            return 1
+        case .result(let r):
+            print(r.primary.text + (r.primary.label.map { "  (\($0))" } ?? ""))
+            print("  = \(r.interpretation)")
+            for st in r.steps {
+                print("    \(st.operation.padding(toLength: 44, withPad: " ", startingAt: 0)) \(st.result)")
+            }
+            for a in r.alternatives { print("  or \(a.text)" + (a.label.map { "  (\($0))" } ?? "")) }
+            return 0
         }
     }
 
@@ -89,7 +114,8 @@ enum CLI {
             try await OpenCode.shared.prompt(session, text: q) { ev in
                 switch ev {
                 case .delta(let d): FileHandle.standardOutput.write(Data(d.utf8))
-                case .tool(let t): FileHandle.standardError.write(Data("[tool \(t)]\n".utf8))
+                case .toolInput(_, let d): FileHandle.standardError.write(Data("[tool \(d)]\n".utf8))
+                case .thinking, .toolStarted, .toolEnded: break
                 case .done: finished = true
                 case .failed(let e):
                     print("\nfailed: \(e)")
@@ -128,10 +154,33 @@ enum CLI {
         AppIndex.shared.scan()
         l.mode = mode(args.value("--mode"))
         if l.mode == .ai {
-            l.conversation = Conversation(backend: OpenCode.shared, turns: [sampleTurn])
+            var turns = sampleTurns
+            if args.has("--busy") { turns.append(busyTurn) }
+            l.conversation = Conversation(backend: OpenCode.shared, turns: turns)
+            if args.has("--selected") { l.selectedTurn = turns.last?.id }
+            if args.has("--menu") {
+                l.chatMenu = args.value("--menu") == "chat" ? .chat : .message(turns[turns.count - 1].id)
+            }
+        }
+        if args.has("--sample-chats") {
+            for (i, t) in (sampleTurns + [busyTurn]).enumerated() {
+                var t = t
+                t.done = true
+                t.finished = Date().addingTimeInterval(Double(-i) * 30_000)
+                let chat = SavedChat(
+                    id: UUID(),
+                    title: Conversation.title(t.question),
+                    created: t.started,
+                    updated: t.finished!,
+                    model: cfg.ai.model,
+                    turns: [t]
+                )
+                ChatStore.shared.save(chat)
+            }
         }
         l.query = args.value("--search") ?? ""
         if l.mode != .ai { l.setItems(l.computeItems(), keepSelection: false) }
+        if args.has("--steps") { l.showSteps = true }
         if args.has("--actions") {
             l.selected = 0
             l.showActions = true
@@ -146,11 +195,94 @@ enum CLI {
         writePNG(host, to: path)
     }
 
-    private static let sampleTurn = ChatTurn(
-        question: "What does `open -a` do?",
-        answer: "`open -a` launches the named application and can open files or URLs with it.",
-        done: true
-    )
+    private static var sampleTurns: [ChatTurn] {
+        var a = ChatTurn(
+            question: "what's UNIT_MULT in the norges bank csv?",
+            answer:
+                "`UNIT_MULT` is a power of ten: `2` means the rate is quoted per 100 units, so SEK, DKK and JPY need dividing by 100.",
+            done: true
+        )
+        a.started = Date().addingTimeInterval(-90)
+        var b = ChatTurn(
+            question: "How do I parse that CSV in Swift and scale by UNIT_MULT?",
+            answer: #"""
+                Split on newlines and `;`, then read four columns:
+
+                | Field | Column | Example |
+                |---|---:|---|
+                | BASE_CUR | 3 | SEK |
+                | UNIT_MULT | 11 | 2 |
+                | OBS_VALUE | 16 | 95.59 |
+
+                ```swift
+                for line in csv.split(whereSeparator: \.isNewline).dropFirst() {
+                    let f = line.split(separator: ";").map(String.init)
+                    guard let mult = Int(f[10]), let v = Decimal(string: f[15]) else { continue }
+                    rates[f[2]] = v / pow(10, mult)  // NOK per 1 unit
+                }
+                ```
+
+                > [!WARNING]
+                > Missing the multiplier is a **100× error**.
+                """#,
+            done: true
+        )
+        b.started = Date().addingTimeInterval(-40)
+        b.finished = Date().addingTimeInterval(-33)
+        b.activities = [
+            ChatActivity(
+                id: "1",
+                tool: "websearch",
+                detail: "norges bank csv unit_mult",
+                started: b.started,
+                ended: b.started.addingTimeInterval(1.2),
+                state: .done,
+                resultCount: 4
+            ),
+            ChatActivity(
+                id: "2",
+                tool: "webfetch",
+                detail: "https://www.norges-bank.no/en/topics/Statistics/exchange_rates/",
+                started: b.started.addingTimeInterval(1.3),
+                ended: b.started.addingTimeInterval(3.1),
+                state: .done
+            ),
+        ]
+        return [a, b]
+    }
+
+    private static var busyTurn: ChatTurn {
+        var t = ChatTurn(question: "What's the USD/NOK fixing today, and how has it moved this month?")
+        t.started = Date().addingTimeInterval(-4.8)
+        t.answer = "The fixing on Friday 20 November was **9,7525 NOK** per dollar. Over November the dollar has"
+        t.activities = [
+            ChatActivity(
+                id: "a",
+                tool: "websearch",
+                detail: "norges bank usd nok fixing",
+                started: t.started,
+                ended: t.started.addingTimeInterval(1),
+                state: .done,
+                resultCount: 4
+            ),
+            ChatActivity(
+                id: "b",
+                tool: "webfetch",
+                detail: "https://www.norges-bank.no/en/topics/Statistics/exchange_rates/",
+                started: t.started.addingTimeInterval(1.1),
+                ended: t.started.addingTimeInterval(2.3),
+                state: .done
+            ),
+            ChatActivity(
+                id: "c",
+                tool: "webfetch",
+                detail: "https://data.norges-bank.no/api/data/EXR/B.USD.NOK.SP",
+                started: t.started.addingTimeInterval(4.2),
+                state: .running
+            ),
+        ]
+        return t
+    }
 
     static func writePNG(_ view: NSView, to path: String) {
         guard let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { return }

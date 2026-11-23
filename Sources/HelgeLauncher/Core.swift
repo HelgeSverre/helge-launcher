@@ -48,6 +48,8 @@ enum Mode: Equatable {
     case snippets
     case onepassword
     case ai
+    /// Saved AI conversations.
+    case chats
     case plugin(String)
 
     /// Id of the root-list item that opens this mode; frecency is recorded under it.
@@ -59,6 +61,7 @@ enum Mode: Equatable {
         case .snippets: return "mode.snippets"
         case .onepassword: return "mode.onepassword"
         case .ai: return "mode.ai"
+        case .chats: return "mode.chats"
         case .plugin(let name): return "plugin:" + name
         }
     }
@@ -72,13 +75,15 @@ enum Mode: Equatable {
         case .snippets: return "Snippets"
         case .onepassword: return "1Password"
         case .ai: return "AI"
+        case .chats: return "Chats"
         case .plugin(let name): return name
         }
     }
 
     /// Root-list entries for every mode the config enables.
     static func entries(_ config: Config) -> [Item] {
-        let modes: [Mode] = [.clipboard, .emoji, .snippets, .onepassword, .ai] + config.plugin.map { .plugin($0.name) }
+        let modes: [Mode] =
+            [.clipboard, .emoji, .snippets, .onepassword, .ai, .chats] + config.plugin.map { .plugin($0.name) }
         return modes.compactMap { $0.entry(config) }
     }
 
@@ -116,6 +121,10 @@ enum Mode: Equatable {
         case .ai:
             return config.ai.enabled
                 ? item("AI Chat", "sparkles", subtitle: config.ai.model, keywords: ["ask", "ai"]) : nil
+        case .chats:
+            return config.ai.enabled
+                ? item("AI Conversations", "clock", subtitle: "Earlier chats", keywords: ["history", "chats", "ai"])
+                : nil
         case .plugin(let name):
             guard let p = config.plugin.first(where: { $0.name == name }) else { return nil }
             return Item(
@@ -147,6 +156,10 @@ struct Item: Identifiable {
     /// Frecency key: recorded when the item is used, read when ranking. nil: not ranked by use.
     var historyKey: String?
     var score: Double = 0
+    /// Drawn as the calculator card.
+    var calc: CalcCard?
+    /// Group heading drawn above the first item of a run ("Today").
+    var section: String?
 }
 
 // MARK: - Fuzzy matching

@@ -1,4 +1,5 @@
 import AppKit
+import Calc
 import SwiftUI
 
 @MainActor
@@ -18,7 +19,13 @@ final class Launcher: ObservableObject {
     @Published private(set) var items: [Item] = []
     @Published var selected = 0
     @Published var showActions = false
+    /// The calculator card lists its worked steps.
+    @Published var showSteps = false
     @Published var actionIndex = 0
+    /// The chat's ⌘K menu or a message's ⋮ menu.
+    @Published var chatMenu: ChatMenu?
+    /// The message picked with ⌥↑ / ⌥↓.
+    @Published var selectedTurn: UUID?
     @Published var toastText: String?
     @Published var configError: String?
     @Published var focusToken = 0
@@ -27,12 +34,15 @@ final class Launcher: ObservableObject {
 
     var config = Config()
     var conversation: Conversation
+    /// The calculator answer last copied or pasted; `ans` in the next query.
+    var lastAnswer: CalcAnswer?
     private var pluginTask: Task<Void, Never>?
     private var toastTask: Task<Void, Never>?
     private(set) var panel: LauncherPanel?
 
     init(ai: AIBackend? = nil) {
         conversation = Conversation(backend: ai ?? OpenCode.shared)
+        conversation.store = ChatStore.shared
         Launcher.shared = self
     }
 
@@ -43,6 +53,7 @@ final class Launcher: ObservableObject {
     /// Takes a new config; an open plugin that the config no longer has returns to the root search.
     func apply(_ new: Config) {
         config = new
+        conversation.model = new.ai.model
         if case .plugin(let name) = mode, !new.plugin.contains(where: { $0.name == name }) {
             mode = .root
             query = ""
@@ -55,6 +66,7 @@ final class Launcher: ObservableObject {
     /// Opens the panel; keeps the AI chat unless a mode or query is given.
     func show(mode m: Mode = .root, query q: String? = nil) {
         AppIndex.shared.refreshIfStale()
+        if config.calculator.enabled { Rates.shared.refreshIfStale(enabled: config.calculator.rates) }
         if m != .root {
             enter(m)
         } else if q != nil || mode != .ai {
@@ -147,6 +159,14 @@ final class Launcher: ObservableObject {
                 )
                 if r.isEmpty || r[0].score < 4 { r.insert(ask, at: 0) } else { r.append(ask) }
             }
+            if config.calculator.enabled && !q.isEmpty {
+                let calc = CalcProvider.items(q, config.calculator, previous: lastAnswer) { [weak self] a in
+                    self?.lastAnswer = a
+                }
+                // An answer replaces "Ask AI" at the top; an error row sits above everything else.
+                if calc.first?.calc?.style == .result, r.first?.id == "ai.ask" { r.append(r.removeFirst()) }
+                r = calc + r
+            }
             return r
         case .clipboard:
             let all = ClipboardHistory.shared.items
@@ -157,6 +177,8 @@ final class Launcher: ObservableObject {
             return rank(Snippets.items(config.snippet), query: query, limit: 200)
         case .onepassword:
             return rank(OnePassword.shared.items, query: query, limit: 100)
+        case .chats:
+            return chatItems()
         case .plugin, .ai:
             return items
         }
@@ -182,13 +204,24 @@ final class Launcher: ObservableObject {
         }
         if keepSelection, let previous, let i = items.firstIndex(where: { $0.id == previous }) {
             selected = i
+        } else if keepSelection {
+            selected = min(selected, max(0, items.count - 1))
         } else {
-            selected = keepSelection ? min(selected, max(0, items.count - 1)) : 0
+            // A row with nothing to run (a calculator error) is not selected first.
+            selected = items.firstIndex { $0.opens != nil || !$0.actions.isEmpty || $0.calc == nil } ?? 0
         }
         if current?.id != previous { showActions = false }
     }
 
+    /// ⌘I: shows or hides the worked steps of the selected calculator answer.
+    func toggleSteps() {
+        guard current?.calc?.steps.isEmpty == false else { return }
+        showActions = false
+        showSteps.toggle()
+    }
+
     private func queryChanged() {
+        showSteps = false
         switch mode {
         case .plugin(let name):
             guard let p = config.plugin.first(where: { $0.name == name }) else { return }
@@ -240,6 +273,18 @@ final class Launcher: ObservableObject {
     }
 
     func back() {
+        if chatMenu != nil {
+            chatMenu = nil
+            return
+        }
+        if mode == .ai, selectedTurn != nil {
+            selectedTurn = nil
+            return
+        }
+        if mode == .chats {
+            enter(.ai)
+            return
+        }
         if showActions {
             showActions = false
             return
@@ -258,6 +303,11 @@ final class Launcher: ObservableObject {
     var current: Item? { items.indices.contains(selected) ? items[selected] : nil }
 
     func move(_ d: Int) {
+        if chatMenu != nil {
+            let n = menuEntries.count
+            if n > 0 { actionIndex = (actionIndex + d + n) % n }
+            return
+        }
         if showActions {
             let n = current?.actions.count ?? 0
             if n > 0 { actionIndex = (actionIndex + d + n) % n }
@@ -268,8 +318,16 @@ final class Launcher: ObservableObject {
     }
 
     func activate(secondary: Bool = false) {
+        if chatMenu != nil {
+            runMenuEntry(actionIndex)
+            return
+        }
         if mode == .ai {
-            submitAI()
+            if secondary {
+                pasteCode()
+            } else {
+                submitAI()
+            }
             return
         }
         guard let it = current else { return }
@@ -305,7 +363,11 @@ final class Launcher: ObservableObject {
     }
 
     func toggleActions() {
-        guard mode != .ai, let it = current, it.actions.count > 0 else { return }
+        if mode == .ai {
+            openChatMenu()
+            return
+        }
+        guard let it = current, it.actions.count > 0 else { return }
         actionIndex = 0
         showActions.toggle()
     }
@@ -356,6 +418,8 @@ final class Launcher: ObservableObject {
     func newChat() {
         conversation.reset()
         query = ""
+        selectedTurn = nil
+        chatMenu = nil
     }
 
     private func submitAI() {
@@ -370,7 +434,10 @@ final class Launcher: ObservableObject {
         submit(q)
     }
 
+    /// While an answer streams, the question waits and is sent after it.
     private func submit(_ q: String) {
-        if conversation.send(q) { query = "" } else { toast("Still answering · ⌘N for a new chat") }
+        conversation.sendOrQueue(q)
+        query = ""
+        selectedTurn = nil
     }
 }

@@ -10,12 +10,13 @@ struct Config: Decodable {
     var clipboard = ClipboardConfig()
     var onepassword = OnePasswordConfig()
     var cleanshot = CleanShotConfig()
+    var calculator = CalculatorConfig()
     var command: [CommandConfig] = []
     var snippet: [SnippetConfig] = []
     var plugin: [PluginConfig] = []
 
     enum CodingKeys: String, CodingKey {
-        case hotkey, include, ai, clipboard, onepassword, cleanshot, command, snippet, plugin
+        case hotkey, include, ai, clipboard, onepassword, cleanshot, calculator, command, snippet, plugin
         case launchAtLogin = "launch_at_login"
     }
 
@@ -30,6 +31,7 @@ struct Config: Decodable {
         clipboard = try c.value(.clipboard, or: clipboard)
         onepassword = try c.value(.onepassword, or: onepassword)
         cleanshot = try c.value(.cleanshot, or: cleanshot)
+        calculator = try c.value(.calculator, or: calculator)
         command = try c.value(.command, or: command)
         snippet = try c.value(.snippet, or: snippet)
         plugin = try c.value(.plugin, or: plugin)
@@ -116,6 +118,25 @@ struct CleanShotConfig: Decodable {
     init(from decoder: Decoder) throws {
         let c = try decoder.container(keyedBy: CodingKeys.self)
         enabled = try c.value(.enabled, or: enabled)
+    }
+}
+
+struct CalculatorConfig: Decodable {
+    var enabled = true
+    /// "system", or a locale such as "nb_NO" or "en_US" for number format and words.
+    var locale = "system"
+    /// Fetch exchange rates (Norges Bank, CoinGecko).
+    var rates = true
+
+    enum CodingKeys: String, CodingKey { case enabled, locale, rates }
+
+    init() {}
+
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        enabled = try c.value(.enabled, or: enabled)
+        locale = try c.value(.locale, or: locale)
+        rates = try c.value(.rates, or: rates)
     }
 }
 

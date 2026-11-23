@@ -23,6 +23,7 @@ Signed with Developer ID and notarized; macOS 14 or later.
 | Feature | How |
 |---|---|
 | Apps | Type part of the name. Results rank by how often and how recently you open things. |
+| Calculator | Type a sum, a conversion or a date question: `1.5 l per day for a year at 2 kr/ml in usd`, `5pm PST in Oslo` ([calculator.md](docs/calculator.md)) |
 | CleanShot X | Capture Area, Record Screen, Capture Text (OCR), Restore Recently Closed and more |
 | Clipboard history | "Clipboard History": text, links, colours, files and images; pin entries you keep |
 | Snippets | Saved text with placeholders such as `{date}` and `{clipboard}`, or `op://` 1Password references ([snippets.md](docs/snippets.md)) |

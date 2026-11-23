@@ -8,13 +8,26 @@ Helge Launcher answers questions through [opencode](https://opencode.ai), runnin
 |---|---|---|
 | Main search | Tab | Sends what you typed to the AI |
 | Main search | ↵ on "Ask AI: …" | Same. The item is listed first when nothing else matches well, otherwise last. |
-| Main search | "AI Chat" command | Opens an empty chat |
-| Chat | ↵ | Sends a follow-up in the same conversation |
+| Main search | "AI Chat" / "AI Conversations" | Opens an empty chat / the saved conversations |
+| Anywhere | ⌘Y | Saved conversations |
+| Chat | ↵ | Sends a follow-up; while an answer streams, the question waits and is sent after it |
 | Chat | ↵ with an empty field | Copies the last answer |
-| Chat | ⌘N | Starts a new conversation |
-| Chat | Esc | Back to the search |
+| Chat | ⌘. | Stops the answer in progress; otherwise opens the message menu |
+| Chat | ⌥↑ ⌥↓ | Selects an earlier answer (Esc clears the selection) |
+| Chat | ⌘C | Copies the selected answer as Markdown (when the field has no selection) |
+| Chat | ⇧⌘C / ⌘↵ | Copies / pastes the code blocks of the selected (or last) answer |
+| Chat | ⌘R / ⇧⌘R | Quotes the answer in a follow-up / asks its question again |
+| Chat | ⌥⌘C / ⌘S | Copies the chat as Markdown / saves it to Downloads as a .md file |
+| Chat | ⌘N / ⌘⌫ | New chat / deletes this chat |
+| Chat | ⌘K | All chat actions; hovering an answer shows its ⋮ menu |
+| Conversations | ↵ / ⌘C | Continues the chat / copies it as Markdown |
+| Chat, Conversations | Esc | Back |
 
-The conversation stays while the app runs: closing and reopening the launcher returns to it. Answers stream in as they are written; inline Markdown (bold, italics, `code`, links) is rendered.
+Answers render GitHub-flavored Markdown: headings, lists and task lists, tables with column alignment, quotes, `> [!NOTE]`-style alerts, links and code blocks with syntax colouring (Swift, shell, JSON, Python, JS/TS, Go, Rust, C-family, SQL, YAML, TOML, CSS, HTML/XML and diffs) and a Copy button. Remote images show as links.
+
+While it works, the chat lists what the AI does: searches with their query and result count, pages read, and thinking, each with its duration. When the answer is done the list folds into one line ("Searched once · read 2 pages · 6,9 s") that expands on click.
+
+Every finished turn is saved to `~/Library/Application Support/HelgeLauncher/chats/<id>.json`; the conversation list searches titles and every message. Continuing an old chat starts a new opencode session and sends the earlier turns along with the next question.
 
 ## What the AI can do
 
@@ -25,7 +38,7 @@ Each conversation is an opencode session with these permissions:
 | `webfetch`, `websearch` | yes: it can look things up and read web pages |
 | everything else (shell, file reads and edits, …) | no |
 
-It runs in its own empty working directory, `~/Library/Application Support/HelgeLauncher/ai`, so it never sees your projects. While it uses a tool, the chat shows "Using …" under the answer.
+It runs in its own empty working directory, `~/Library/Application Support/HelgeLauncher/ai`, so it never sees your projects.
 
 ## Setup
 
@@ -48,7 +61,7 @@ Set `enabled = false` to remove the AI items and stop the server.
 - If the server exits, the next question starts a new one. Changing `opencode` or setting `enabled = false` stops it; a `model` change applies to new chats (⌘N).
 - One question is answered at a time; asking while an answer is streaming shows "Still answering".
 - Each conversation is a session created with `POST /api/session` (model and permissions above). Questions go to `POST /api/session/{id}/prompt`.
-- Answers arrive over one server-sent-events stream (`GET /api/event`), filtered to text deltas, tool calls and completion.
+- Answers arrive over one server-sent-events stream (`GET /api/event`), filtered to text deltas, reasoning start/end, tool input, success and failure, and completion. `HL_AI_EVENTS=1 HelgeLauncher --ai "…"` prints every raw event to stderr.
 - The server only listens on localhost and requires the password, which never leaves the process.
 
 Test from a terminal without the UI:

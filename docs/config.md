@@ -37,6 +37,11 @@ use_service_account = false
 [cleanshot]
 enabled = true
 
+[calculator]
+enabled = true
+locale = "system"
+rates = true
+
 [[command]]                     # (example)
 name = "Downloads"
 open = "~/Downloads"
@@ -109,6 +114,14 @@ Actions on an item: Copy Password (or Credential for API credentials), Copy User
 | `enabled` | bool | `true` | Adds CleanShot X commands (Capture Area, Record Screen, Capture Text (OCR), Restore Recently Closed, …) using its `cleanshot://` URL scheme |
 
 The commands need [CleanShot X](https://cleanshot.com). CleanShot's own global shortcuts (set in CleanShot's settings) keep working independently.
+
+## `[calculator]`
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `enabled` | bool | `true` | Answers calculations in the root search ([calculator.md](calculator.md)) |
+| `locale` | string | `"system"` | Number format and words: `"system"`, or a locale such as `"nb_NO"` or `"en_US"` |
+| `rates` | bool | `true` | Fetches exchange rates from Norges Bank and CoinGecko, at most every six hours |
 
 ## `[[command]]`
 

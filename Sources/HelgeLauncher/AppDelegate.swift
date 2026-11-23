@@ -107,13 +107,61 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             kVK_ANSI_X: #selector(NSText.cut(_:)),
         ]
         NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] e in
-            guard let self, self.panel.isKeyWindow, e.modifierFlags.contains(.command) else { return e }
+            guard let self, self.panel.isKeyWindow else { return e }
             let key = Int(e.keyCode)
+            let flags = e.modifierFlags.intersection(.deviceIndependentFlagsMask)
+            let l = self.launcher
+            // ⌥↑ / ⌥↓: step through the chat's answers.
+            if l.mode == .ai, flags.subtracting([.numericPad, .function]) == .option,
+                key == kVK_UpArrow || key == kVK_DownArrow
+            {
+                l.moveMessage(key == kVK_UpArrow ? -1 : 1)
+                return nil
+            }
+            guard flags.contains(.command) else { return e }
+            let shift = flags.contains(.shift)
+            let option = flags.contains(.option)
+            let fieldHasSelection = ((self.panel.firstResponder as? NSTextView)?.selectedRange().length ?? 0) > 0
+            if l.mode == .ai {
+                switch key {
+                case kVK_ANSI_Period:
+                    l.stopOrMessageMenu()
+                    return nil
+                case kVK_ANSI_Y:
+                    l.showConversations()
+                    return nil
+                case kVK_ANSI_S:
+                    l.saveChatFile()
+                    return nil
+                case kVK_Delete where !l.conversation.turns.isEmpty && l.query.isEmpty:
+                    l.deleteChat()
+                    return nil
+                case kVK_ANSI_R:
+                    shift ? l.askAgain() : l.quote()
+                    return nil
+                case kVK_ANSI_C where option:
+                    l.copyChat()
+                    return nil
+                case kVK_ANSI_C where shift:
+                    l.copyCode()
+                    return nil
+                case kVK_ANSI_C where !fieldHasSelection && l.copySelectedMessage(): return nil
+                default: break
+                }
+            }
+            if l.mode == .chats, key == kVK_ANSI_C, !fieldHasSelection, l.copySelectedChat() { return nil }
+            if l.mode != .ai, l.mode != .chats, key == kVK_ANSI_Y, l.config.ai.enabled {
+                l.show()
+                l.showConversations()
+                return nil
+            }
             switch key {
             case kVK_Return:
                 self.launcher.activate(secondary: true)
             case kVK_ANSI_K:
                 self.launcher.toggleActions()
+            case kVK_ANSI_I:
+                self.launcher.toggleSteps()
             case kVK_ANSI_N where self.launcher.mode == .ai:
                 self.launcher.newChat()
             case kVK_ANSI_W:

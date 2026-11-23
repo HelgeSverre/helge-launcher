@@ -25,6 +25,17 @@ install: bundle
     ditto "build/Helge Launcher.app" "/Applications/Helge Launcher.app"
     open "/Applications/Helge Launcher.app"
 
+# Quit and remove /Applications/Helge Launcher.app; config (~/.config/hl) and history stay.
+[group('build')]
+uninstall:
+    pkill -x HelgeLauncher || true
+    if brew list --cask helge-launcher >/dev/null 2>&1; then brew uninstall --cask helge-launcher; fi
+    rm -rf "/Applications/Helge Launcher.app"
+
+# Uninstall, then install a fresh development build.
+[group('build')]
+reinstall: uninstall install
+
 # Regenerate the app icon and the menu-bar icon.
 [group('build')]
 icons:
@@ -58,6 +69,11 @@ search query mode="root":
 [group('test')]
 plugin name query="":
     swift build -q && .build/debug/HelgeLauncher --plugin "$1" --search "$2"
+
+# Evaluate a calculator query, e.g. `just calc "100 usd in nok"`.
+[group('test')]
+calc query:
+    swift build -q && .build/debug/HelgeLauncher --calc "$1"
 
 # Expand a snippet text, e.g. `just expand 'Today is {weekday}'`.
 [group('test')]

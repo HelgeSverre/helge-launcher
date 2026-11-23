@@ -150,8 +150,68 @@ enum UserCommands {
 // MARK: - Emoji
 
 enum Emoji {
+    struct Entry {
+        let char: String
+        let name: String
+        /// Names in the user's other languages, for search ("tommel opp").
+        let keywords: [String]
+    }
+
+    /// Apple's emoji names, as the Character Viewer uses them: every emoji macOS can draw, including flags,
+    /// keycaps and ZWJ sequences, localized per language. Not a public API, so the Unicode scan below stays
+    /// as a fallback.
+    static let coreEmoji = URL(
+        fileURLWithPath: "/System/Library/PrivateFrameworks/CoreEmoji.framework/Versions/A/Resources"
+    )
+
+    static func appleNames(_ lproj: String, in dir: URL = coreEmoji) -> [String: String] {
+        let url = dir.appendingPathComponent("\(lproj).lproj/AppleName.strings")
+        return (NSDictionary(contentsOf: url) as? [String: String]) ?? [:]
+    }
+
+    /// `.lproj` folders for the preferred languages that CoreEmoji has; Norwegian Bokmål is `no`.
+    static func lprojs(_ languages: [String], in dir: URL = coreEmoji) -> [String] {
+        var out: [String] = []
+        for lang in languages {
+            let code = lang.split(separator: "-").first.map(String.init) ?? lang
+            let folder = ["nb", "nn"].contains(code) ? "no" : code
+            if !out.contains(folder),
+                FileManager.default.fileExists(atPath: dir.appendingPathComponent(folder + ".lproj").path)
+            {
+                out.append(folder)
+            }
+        }
+        if !out.contains("en") { out.append("en") }
+        return out
+    }
+
+    /// English names only: emoji search is in English whatever the system languages are.
+    static let all: [Entry] = load(languages: ["en"])
+
+    static func load(languages: [String], in dir: URL = coreEmoji) -> [Entry] {
+        let tables = lprojs(languages, in: dir).map { appleNames($0, in: dir) }.filter { !$0.isEmpty }
+        guard !tables.isEmpty else { return scanned }
+        let chars = tables.reduce(into: Set<String>()) { $0.formUnion($1.keys) }
+        return chars.sorted(by: order).compactMap { c in
+            let names = tables.compactMap { $0[c] }
+            guard let name = names.first else { return nil }
+            return Entry(
+                char: c,
+                name: name.prefix(1).uppercased() + name.dropFirst(),
+                keywords: Array(Set(names.dropFirst()))
+            )
+        }
+    }
+
+    /// Unicode order of the scalars, so related emoji sit together.
+    private static func order(_ a: String, _ b: String) -> Bool {
+        let x = a.unicodeScalars.map(\.value)
+        let y = b.unicodeScalars.map(\.value)
+        return x.lexicographicallyPrecedes(y)
+    }
+
     /// Emoji-presentation scalars from the Unicode tables, plus the 0x2600 block.
-    static let all: [(char: String, name: String)] = {
+    static let scanned: [Entry] = {
         let ranges: [ClosedRange<UInt32>] = [
             0x1F300...0x1FAFF,
             0x2600...0x27BF,
@@ -160,7 +220,7 @@ enum Emoji {
             0x2190...0x21FF,
             0x2300...0x23FF,
         ]
-        var out: [(String, String)] = []
+        var out: [Entry] = []
         for r in ranges {
             for v in r {
                 guard let s = Unicode.Scalar(v),
@@ -168,7 +228,7 @@ enum Emoji {
                     s.properties.isEmojiPresentation || r.lowerBound == 0x2600,
                     let name = s.properties.name
                 else { continue }
-                out.append((String(s), name.lowercased()))
+                out.append(Entry(char: String(s), name: name.lowercased().capitalized, keywords: []))
             }
         }
         return out
@@ -178,8 +238,9 @@ enum Emoji {
         all.map { e in
             Item(
                 id: "emoji:" + e.char,
-                title: e.name.capitalized,
+                title: e.name,
                 icon: .emoji(e.char),
+                keywords: e.keywords,
                 actions: [
                     Action(title: "Paste") {
                         Pasteboard.paste(e.char)

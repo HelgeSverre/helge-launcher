@@ -116,6 +116,7 @@ struct LauncherView: View {
             ZStack(alignment: .bottomTrailing) {
                 if l.mode == .ai { ChatView(conversation: l.conversation) } else { results }
                 if l.showActions, let it = l.current { ActionsMenu(item: it).padding(10) }
+                if l.chatMenu == .chat { MenuView(entries: l.chatEntries).padding(10) }
             }
             .frame(maxHeight: .infinity)
             Rectangle().fill(Theme.border).frame(height: 1)
@@ -139,6 +140,27 @@ struct LauncherView: View {
                     )
             }
             SearchField(text: $l.query, placeholder: placeholder, focusToken: l.focusToken, onCommand: handle)
+            if l.mode == .ai && !l.conversation.turns.isEmpty {
+                Text(l.conversation.title).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
+                    .frame(maxWidth: 220, alignment: .trailing)
+            }
+            if l.mode == .ai {
+                Button {
+                    l.showConversations()
+                } label: {
+                    Image(systemName: "clock")
+                        .font(.system(size: 13))
+                        .foregroundStyle(Theme.text2)
+                        .frame(width: 30, height: 30)
+                        .overlay(
+                            RoundedRectangle(cornerRadius: Theme.radiusChip).strokeBorder(Theme.border, lineWidth: 1)
+                        )
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("Conversations")
+                .help("Conversations ⌘Y")
+            }
         }
         .padding(.horizontal, 18)
         .frame(height: 56)
@@ -147,7 +169,10 @@ struct LauncherView: View {
     private var placeholder: String {
         switch l.mode {
         case .root: return "Search apps and commands…"
-        case .ai: return l.conversation.turns.isEmpty ? "Ask anything…" : "Follow up…"
+        case .ai:
+            if l.conversation.isBusy { return "Type the next question while it answers…" }
+            return l.conversation.turns.isEmpty ? "Ask anything…" : "Follow up…"
+        case .chats: return "Search conversations…"
         default: return "Search \(l.mode.title)…"
         }
     }
@@ -176,10 +201,23 @@ struct LauncherView: View {
                 ScrollView {
                     LazyVStack(spacing: 1) {
                         ForEach(Array(l.items.enumerated()), id: \.element.id) { i, it in
-                            Row(item: it, selected: i == l.selected)
-                                .id(it.id)
-                                .contentShape(Rectangle())
-                                .onTapGesture { l.click(i) }
+                            if let s = it.section, i == 0 || l.items[i - 1].section != s {
+                                Text(s)
+                                    .font(Theme.sans(11, .medium))
+                                    .foregroundStyle(Theme.muted)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(.horizontal, 10).padding(.top, i == 0 ? 4 : 10).padding(.bottom, 2)
+                            }
+                            Group {
+                                if l.mode == .chats {
+                                    ChatRow(item: it, selected: i == l.selected)
+                                } else {
+                                    Row(item: it, selected: i == l.selected)
+                                }
+                            }
+                            .id(it.id)
+                            .contentShape(Rectangle())
+                            .onTapGesture { l.click(i) }
                         }
                     }
                     .padding(6)
@@ -188,6 +226,11 @@ struct LauncherView: View {
                 .onChange(of: l.selected) { _, s in
                     if l.items.indices.contains(s) { proxy.scrollTo(l.items[s].id) }
                 }
+            }
+            .frame(width: l.mode == .chats ? 320 : nil)
+            if l.mode == .chats, let chat = l.currentChat {
+                Rectangle().fill(Theme.border).frame(width: 1)
+                ChatPreview(chat: chat).frame(maxWidth: .infinity).background(Theme.soft)
             }
             if let p = l.current?.preview, l.mode == .clipboard || l.mode == .snippets {
                 Rectangle().fill(Theme.border).frame(width: 1)
@@ -218,17 +261,35 @@ struct LauncherView: View {
                 Text(t).foregroundStyle(Theme.text)
             } else if let e = l.configError {
                 Label("Config: \(e)", systemImage: "exclamationmark.triangle").foregroundStyle(Theme.warn).lineLimit(1)
-            } else if l.mode != .ai, !l.items.isEmpty {
+            } else if l.mode == .ai {
+                ChatStatus(conversation: l.conversation, model: l.config.ai.model)
+            } else if l.mode == .chats {
+                Text("\(l.items.count) \(l.items.count == 1 ? "conversation" : "conversations")")
+                    .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+            } else if !l.items.isEmpty {
                 Text("\(l.items.count) \(l.items.count == 1 ? "result" : "results")")
                     .font(Theme.mono(11)).foregroundStyle(Theme.muted)
             }
             Spacer()
             if l.mode == .ai {
-                Hint(key: "↵", label: "Send")
-                Hint(key: "⌘N", label: "New chat")
-                Hint(key: "esc", label: "Back")
-            } else if let it = l.current {
+                if l.conversation.isBusy {
+                    Hint(key: "⌘.", label: "Stop")
+                    Hint(key: "↵", label: "Queue")
+                } else if l.selectedTurn != nil {
+                    Hint(key: "⌘.", label: "Message")
+                    Hint(key: "⌘K", label: "Actions")
+                } else {
+                    Hint(key: "↵", label: "Send")
+                    Hint(key: "⌘Y", label: "Conversations")
+                    if !l.conversation.turns.isEmpty { Hint(key: "⌘K", label: "Actions") }
+                }
+            } else if l.mode == .chats, l.current != nil {
+                Hint(key: "↵", label: "Continue")
+                Hint(key: "⌘C", label: "Copy as Markdown")
+                Hint(key: "⌘K", label: "Actions")
+            } else if let it = l.current, it.opens != nil || !it.actions.isEmpty {
                 Hint(key: "↵", label: it.opens != nil ? "Open" : (it.actions.first?.title ?? ""))
+                if it.calc?.steps.isEmpty == false { Hint(key: "⌘I", label: l.showSteps ? "Hide Steps" : "Steps") }
                 if it.actions.count > 1 { Hint(key: "⌘K", label: "Actions") }
             }
         }
@@ -255,6 +316,14 @@ struct Row: View {
     let selected: Bool
 
     var body: some View {
+        if let card = item.calc {
+            CalcCardView(card: card, selected: selected)
+        } else {
+            plain
+        }
+    }
+
+    private var plain: some View {
         HStack(spacing: 12) {
             IconView(icon: item.icon, selected: selected).frame(width: 22, height: 22)
             Text(item.title)
@@ -276,6 +345,84 @@ struct Row: View {
         .padding(.horizontal, 10)
         .frame(height: 40)
         .background(RoundedRectangle(cornerRadius: Theme.radiusRow).fill(selected ? Theme.accentSoft : .clear))
+    }
+}
+
+/// The calculator answer: what was understood as a caption, the answer large, details on the right.
+struct CalcCardView: View {
+    @EnvironmentObject var l: Launcher
+    let card: CalcCard
+    let selected: Bool
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if card.style == .error {
+                HStack(spacing: 10) {
+                    Image(systemName: "exclamationmark.circle").foregroundStyle(Theme.muted)
+                    Text(card.answer).foregroundStyle(Theme.text2).lineLimit(1)
+                    Spacer(minLength: 0)
+                }
+                .font(Theme.sans(13))
+                .frame(height: 40)
+            } else {
+                VStack(alignment: .leading, spacing: 2) {
+                    if let e = card.expression, !(l.showSteps && !card.steps.isEmpty) {
+                        Text(e)
+                            .font(Theme.mono(12))
+                            .foregroundStyle(Theme.muted)
+                            .lineLimit(1)
+                            .truncationMode(.head)
+                    }
+                    HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        Text(card.answer)
+                            .font(Theme.sans(28, .semibold).monospacedDigit())
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                            .minimumScaleFactor(0.5)
+                            .layoutPriority(1)
+                        Spacer(minLength: 8)
+                        if let d = card.detail {
+                            Text(d).font(Theme.sans(12)).foregroundStyle(Theme.text2).lineLimit(1)
+                        }
+                    }
+                }
+                .frame(height: 76)
+                if l.showSteps && !card.steps.isEmpty { steps }
+            }
+        }
+        .padding(.horizontal, 16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: Theme.radiusRow).fill(selected ? Theme.raised : Theme.soft))
+        .overlay(
+            RoundedRectangle(cornerRadius: Theme.radiusRow)
+                .strokeBorder(selected ? Theme.accentText.opacity(0.55) : Theme.border, lineWidth: 1)
+        )
+        .padding(.bottom, 4)
+    }
+
+    /// The chain one operation per line, running result on the right.
+    private var steps: some View {
+        VStack(spacing: 0) {
+            Rectangle().fill(Theme.border).frame(height: 1).padding(.bottom, 8)
+            ForEach(Array(card.steps.enumerated()), id: \.offset) { i, s in
+                HStack(spacing: 12) {
+                    Text(s.operation)
+                        .font(Theme.mono(12))
+                        .foregroundStyle(i == 0 ? Theme.text : Theme.text2)
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                    Spacer(minLength: 8)
+                    if i > 0 || s.showsResult {
+                        Text(s.result)
+                            .font(Theme.sans(13, i == card.steps.count - 1 ? .semibold : .regular).monospacedDigit())
+                            .foregroundStyle(Theme.text)
+                            .lineLimit(1)
+                    }
+                }
+                .frame(height: 22)
+            }
+        }
+        .padding(.bottom, 10)
     }
 }
 
@@ -339,47 +486,6 @@ struct ActionsMenu: View {
         .background(RoundedRectangle(cornerRadius: Theme.radiusRow).fill(Theme.raised))
         .overlay(RoundedRectangle(cornerRadius: Theme.radiusRow).strokeBorder(Theme.borderStrong, lineWidth: 1))
         .shadow(color: .black.opacity(0.45), radius: 18, y: 8)
-    }
-}
-
-struct ChatView: View {
-    @EnvironmentObject var l: Launcher
-    @ObservedObject var conversation: Conversation
-    var body: some View {
-        ScrollViewReader { proxy in
-            ScrollView {
-                VStack(alignment: .leading, spacing: 18) {
-                    if conversation.turns.isEmpty {
-                        Text(l.config.ai.model).font(Theme.mono(11)).foregroundStyle(Theme.muted)
-                    }
-                    ForEach(conversation.turns) { t in
-                        VStack(alignment: .leading, spacing: 8) {
-                            Text(markdown(t.question)).font(Theme.sans(14, .semibold)).foregroundStyle(Theme.text)
-                            if !t.answer.isEmpty {
-                                Text(markdown(t.answer)).font(Theme.sans(14)).foregroundStyle(Theme.text)
-                                    .textSelection(.enabled).lineSpacing(4)
-                            }
-                            if !t.status.isEmpty {
-                                Text(t.status).font(Theme.mono(11)).foregroundStyle(
-                                    t.status.hasPrefix("Failed") || t.status.hasPrefix("Error")
-                                        ? Theme.err : Theme.muted
-                                )
-                            }
-                        }
-                        .id(t.id)
-                    }
-                    Color.clear.frame(height: 1).id("bottom")
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(18)
-            }
-            .onChange(of: conversation.turns.last?.answer) { _, _ in proxy.scrollTo("bottom", anchor: .bottom) }
-        }
-    }
-
-    private func markdown(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace)))
-            ?? AttributedString(s)
     }
 }
 
