@@ -81,7 +81,11 @@ struct TurnView: View {
                 MarkdownView(text: turn.answer, streaming: !turn.done)
             }
             if let e = turn.error {
-                Text("Failed: \(e) · Ask again ⇧⌘R").font(Theme.sans(12.5)).foregroundStyle(Theme.err)
+                HStack(spacing: 8) {
+                    Text("Failed: \(e)").font(Theme.sans(12.5)).foregroundStyle(Theme.err)
+                    Text("Ask again").font(Theme.sans(12)).foregroundStyle(Theme.text2)
+                    KeyCap(key: "⇧⌘R")
+                }
             } else if turn.stopped {
                 Text("Stopped").font(Theme.mono(11)).foregroundStyle(Theme.muted)
             }
@@ -523,7 +527,7 @@ struct MenuView: View {
                 HStack {
                     Text(e.title).font(Theme.sans(13)).foregroundStyle(e.destructive ? Theme.err : Theme.text)
                     Spacer()
-                    if let s = e.shortcut { Text(s).font(Theme.mono(11)).foregroundStyle(Theme.muted) }
+                    if let s = e.shortcut { MenuShortcut(combo: s) }
                 }
                 .padding(.horizontal, 10)
                 .frame(height: 30)

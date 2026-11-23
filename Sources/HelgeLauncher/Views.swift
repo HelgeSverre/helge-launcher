@@ -489,15 +489,55 @@ struct ActionsMenu: View {
     }
 }
 
+/// A key combination such as "⇧⌘C": one cap per key, in the system font, which has the modifier glyphs.
 struct KeyCap: View {
     let key: String
     var body: some View {
-        Text(key)
-            .font(Theme.mono(11, .medium))
-            .foregroundStyle(Theme.text2)
-            .padding(.horizontal, 5)
-            .frame(minWidth: 20, minHeight: 18)
-            .background(RoundedRectangle(cornerRadius: Theme.radiusSmall).fill(Theme.ground))
-            .overlay(RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.borderStrong, lineWidth: 1))
+        let (keys, note) = KeyCap.split(key)
+        HStack(spacing: 3) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { _, k in
+                Text(k)
+                    .font(.system(size: k.count > 1 ? 10.5 : 11.5, weight: .medium))
+                    .foregroundStyle(Theme.text2)
+                    .padding(.horizontal, 4)
+                    .frame(minWidth: 18, minHeight: 18)
+                    .background(RoundedRectangle(cornerRadius: Theme.radiusSmall).fill(Theme.ground))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: Theme.radiusSmall).strokeBorder(Theme.borderStrong, lineWidth: 1)
+                    )
+            }
+            if let note { Text(note).font(Theme.sans(11)).foregroundStyle(Theme.muted) }
+        }
+    }
+
+    static let modifiers: Set<Character> = ["⌃", "⌥", "⇧", "⌘"]
+
+    /// "⇧⌘C" → ["⇧", "⌘", "C"]; "↵ empty" → (["↵"], "empty"); "esc" → ["esc"].
+    static func split(_ combo: String) -> (keys: [String], note: String?) {
+        let parts = combo.split(separator: " ", maxSplits: 1).map(String.init)
+        var keys: [String] = []
+        var rest = Substring(parts.first ?? "")
+        while let c = rest.first, modifiers.contains(c) {
+            keys.append(String(c))
+            rest = rest.dropFirst()
+        }
+        if !rest.isEmpty { keys.append(rest.count == 1 ? rest.uppercased() : String(rest)) }
+        return (keys, parts.count > 1 ? parts[1] : nil)
+    }
+}
+
+/// A shortcut in a menu row, spaced like macOS menus: "⇧ ⌘ C".
+struct MenuShortcut: View {
+    let combo: String
+    var body: some View {
+        let (keys, note) = KeyCap.split(combo)
+        HStack(spacing: 3) {
+            ForEach(Array(keys.enumerated()), id: \.offset) { _, k in
+                Text(k).frame(minWidth: 11)
+            }
+            if let note { Text(note).font(Theme.sans(11)) }
+        }
+        .font(.system(size: 12))
+        .foregroundStyle(Theme.muted)
     }
 }
