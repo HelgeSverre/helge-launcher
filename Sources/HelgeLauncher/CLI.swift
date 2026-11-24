@@ -56,6 +56,7 @@ enum CLI {
         case "onepassword": return .onepassword
         case "ai": return .ai
         case "chats": return .chats
+        case "stats": return .stats
         default: return .root
         }
     }

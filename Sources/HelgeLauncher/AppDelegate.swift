@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.item(withTag: MenuTag.grantAccessibility.rawValue)?.isHidden = PermissionHelper.shared.isTrusted
     }
 
-    /// `helgelauncher://show[?q=]`, `clipboard`, `emoji`, `snippets`, `1password`, `ai[?q=]`.
+    /// `helgelauncher://show[?q=]`, `clipboard`, `emoji`, `snippets`, `1password`, `stats`, `ai[?q=]`.
     func application(_ application: NSApplication, open urls: [URL]) {
         for u in urls {
             let q = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value
@@ -42,6 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case "emoji": launcher.show(mode: .emoji)
             case "snippets": launcher.show(mode: .snippets)
             case "1password": launcher.show(mode: .onepassword)
+            case "stats": launcher.show(mode: .stats)
             case "ai":
                 launcher.show()
                 if let q { launcher.askAI(q) } else { launcher.openAIChat() }
@@ -74,7 +75,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             bindings.append((h, { [weak self] in self?.launcher.show(mode: .clipboard) }))
         }
         for c in cfg.command {
-            if let h = c.hotkey { bindings.append((h, { UserCommands.run(c) })) }
+            if let h = c.hotkey {
+                bindings.append(
+                    (
+                        h,
+                        {
+                            History.shared.record("cmd:" + c.name)
+                            UserCommands.run(c)
+                        }
+                    )
+                )
+            }
         }
         let problems = [loaded.error].compactMap { $0 } + loaded.warnings + Hotkeys.shared.replace(with: bindings)
 

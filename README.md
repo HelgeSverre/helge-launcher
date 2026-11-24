@@ -30,6 +30,7 @@ Signed with Developer ID and notarized; macOS 14 or later.
 | Emoji | "Search Emoji & Symbols" |
 | 1Password | "1Password": search items, copy password, username or one-time code (via the `op` CLI) |
 | AI | Tab sends what you typed to the AI; follow-ups continue the chat ([ai.md](docs/ai.md)) |
+| Usage statistics | "Usage Statistics": launches in total, today and this week, the split by kind, and every app and command ranked by use. ↵ opens one; ⌘K → Forget resets its count. |
 | Commands | Your own: open a URL, file or app, or run a shell command; optional global hotkey |
 | Plugins | Any program that prints JSON adds its own list: calculators, repo search, notes… ([plugins.md](docs/plugins.md)) |
 
@@ -98,6 +99,7 @@ Open the launcher from scripts, Shortcuts or other apps:
 | `helgelauncher://emoji` | Emoji search |
 | `helgelauncher://snippets` | Snippet search |
 | `helgelauncher://1password` | 1Password search |
+| `helgelauncher://stats` | Usage statistics |
 | `helgelauncher://ai?q=question` | AI chat, asking the question (without `q`: the chat) |
 
 ```sh

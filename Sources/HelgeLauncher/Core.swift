@@ -50,6 +50,8 @@ enum Mode: Equatable {
     case ai
     /// Saved AI conversations.
     case chats
+    /// Usage statistics: what was run, how often.
+    case stats
     case plugin(String)
 
     /// Id of the root-list item that opens this mode; frecency is recorded under it.
@@ -62,6 +64,7 @@ enum Mode: Equatable {
         case .onepassword: return "mode.onepassword"
         case .ai: return "mode.ai"
         case .chats: return "mode.chats"
+        case .stats: return "mode.stats"
         case .plugin(let name): return "plugin:" + name
         }
     }
@@ -76,6 +79,7 @@ enum Mode: Equatable {
         case .onepassword: return "1Password"
         case .ai: return "AI"
         case .chats: return "Chats"
+        case .stats: return "Stats"
         case .plugin(let name): return name
         }
     }
@@ -83,7 +87,7 @@ enum Mode: Equatable {
     /// Root-list entries for every mode the config enables.
     static func entries(_ config: Config) -> [Item] {
         let modes: [Mode] =
-            [.clipboard, .emoji, .snippets, .onepassword, .ai, .chats] + config.plugin.map { .plugin($0.name) }
+            [.clipboard, .emoji, .snippets, .onepassword, .ai, .chats, .stats] + config.plugin.map { .plugin($0.name) }
         return modes.compactMap { $0.entry(config) }
     }
 
@@ -125,6 +129,13 @@ enum Mode: Equatable {
             return config.ai.enabled
                 ? item("AI Conversations", "clock", subtitle: "Earlier chats", keywords: ["history", "chats", "ai"])
                 : nil
+        case .stats:
+            return item(
+                "Usage Statistics",
+                "chart.bar",
+                subtitle: "Most used apps and commands",
+                keywords: ["stats", "usage", "most used", "history"]
+            )
         case .plugin(let name):
             guard let p = config.plugin.first(where: { $0.name == name }) else { return nil }
             return Item(
@@ -158,6 +169,8 @@ struct Item: Identifiable {
     var score: Double = 0
     /// Drawn as the calculator card.
     var calc: CalcCard?
+    /// Drawn as a usage-statistics row.
+    var usage: Usage?
     /// Group heading drawn above the first item of a run ("Today").
     var section: String?
 }
@@ -214,21 +227,46 @@ final class History {
     struct Entry: Codable {
         var count: Int
         var last: Double
+        /// Uses per local day ("2026-11-24"), the last `History.keepDays` days; nil in entries
+        /// recorded before days were kept.
+        var days: [String: Int]?
     }
+    /// How many days of per-day counts are kept.
+    static let keepDays = 120
     private(set) var entries: [String: Entry] = [:]
-    private let url = Paths.supportDir.appendingPathComponent("history.json")
+    private let url: URL
 
-    init() {
+    init(url: URL = Paths.supportDir.appendingPathComponent("history.json")) {
+        self.url = url
         if let d = try? Data(contentsOf: url), let e = try? JSONDecoder().decode([String: Entry].self, from: d) {
             entries = e
         }
     }
 
-    func record(_ id: String) {
+    static func day(_ date: Date) -> String {
+        let c = Calendar.current.dateComponents([.year, .month, .day], from: date)
+        return String(format: "%04d-%02d-%02d", c.year ?? 0, c.month ?? 0, c.day ?? 0)
+    }
+
+    func record(_ id: String, at now: Date = Date()) {
         var e = entries[id] ?? Entry(count: 0, last: 0)
         e.count += 1
-        e.last = Date().timeIntervalSince1970
+        e.last = now.timeIntervalSince1970
+        var days = e.days ?? [:]
+        days[History.day(now), default: 0] += 1
+        let cutoff = History.day(now.addingTimeInterval(-Double(History.keepDays) * 86400))
+        e.days = days.filter { $0.key > cutoff }
         entries[id] = e
+        save()
+    }
+
+    /// Removes an item's counts; it ranks as if never used.
+    func forget(_ id: String) {
+        entries[id] = nil
+        save()
+    }
+
+    private func save() {
         if let d = try? JSONEncoder().encode(entries) { try? d.write(to: url, options: .atomic) }
     }
 

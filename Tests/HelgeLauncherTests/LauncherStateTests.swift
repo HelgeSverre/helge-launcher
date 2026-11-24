@@ -92,13 +92,13 @@ final class Box<T> {
         #expect(
             Mode.entries(cfg).map(\.id) == [
                 "mode.clipboard", "mode.emoji", "mode.snippets", "mode.onepassword", "mode.ai", "mode.chats",
-                "plugin:Units",
+                "mode.stats", "plugin:Units",
             ]
         )
         cfg.ai.enabled = false
         cfg.clipboard.enabled = false
         cfg.onepassword.enabled = false
-        #expect(Mode.entries(cfg).map(\.id) == ["mode.emoji", "mode.snippets", "plugin:Units"])
+        #expect(Mode.entries(cfg).map(\.id) == ["mode.emoji", "mode.snippets", "mode.stats", "plugin:Units"])
     }
 
     @Test func duplicateIdsAreMadeUnique() {

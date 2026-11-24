@@ -100,7 +100,7 @@ final class Launcher: ObservableObject {
 
     // MARK: Items
 
-    private var rootItems: [Item] {
+    var rootItems: [Item] {
         var all = AppIndex.shared.items
         if config.cleanshot.enabled { all += CleanShot.items }
         all += UserCommands.items(config.command)
@@ -179,6 +179,8 @@ final class Launcher: ObservableObject {
             return rank(OnePassword.shared.items, query: query, limit: 100)
         case .chats:
             return chatItems()
+        case .stats:
+            return statsItems()
         case .plugin, .ai:
             return items
         }

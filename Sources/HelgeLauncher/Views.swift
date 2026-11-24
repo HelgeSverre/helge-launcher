@@ -173,6 +173,7 @@ struct LauncherView: View {
             if l.conversation.isBusy { return "Type the next question while it answers…" }
             return l.conversation.turns.isEmpty ? "Ask anything…" : "Follow up…"
         case .chats: return "Search conversations…"
+        case .stats: return "Search usage…"
         default: return "Search \(l.mode.title)…"
         }
     }
@@ -196,6 +197,16 @@ struct LauncherView: View {
     }
 
     private var results: some View {
+        VStack(spacing: 0) {
+            if l.mode == .stats && l.query.isEmpty {
+                StatsSummary(summary: UsageSummary(History.shared.entries))
+                Rectangle().fill(Theme.border).frame(height: 1)
+            }
+            list
+        }
+    }
+
+    private var list: some View {
         HStack(spacing: 0) {
             ScrollViewReader { proxy in
                 ScrollView {
@@ -211,6 +222,8 @@ struct LauncherView: View {
                             Group {
                                 if l.mode == .chats {
                                     ChatRow(item: it, selected: i == l.selected)
+                                } else if let u = it.usage {
+                                    StatsRow(item: it, usage: u, selected: i == l.selected)
                                 } else {
                                     Row(item: it, selected: i == l.selected)
                                 }
@@ -265,6 +278,9 @@ struct LauncherView: View {
                 ChatStatus(conversation: l.conversation, model: l.config.ai.model)
             } else if l.mode == .chats {
                 Text("\(l.items.count) \(l.items.count == 1 ? "conversation" : "conversations")")
+                    .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+            } else if l.mode == .stats {
+                Text("\(l.items.count) \(l.items.count == 1 ? "item" : "items")")
                     .font(Theme.mono(11)).foregroundStyle(Theme.muted)
             } else if !l.items.isEmpty {
                 Text("\(l.items.count) \(l.items.count == 1 ? "result" : "results")")
