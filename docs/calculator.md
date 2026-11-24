@@ -5,7 +5,7 @@ Type a calculation in the root search. The answer is the first row: the query as
 | Key | Action |
 |---|---|
 | ↵ | Copy the answer as shown (`112 278,90 USD`) |
-| ⌘↵ | Copy the number alone, no grouping, for spreadsheets (`112278,9028`) |
+| ⌘↵ | Copy the number alone, no grouping, for spreadsheets (`112278.9028`) |
 | ⌘I | Show the steps of a chain: each operation with its running result |
 | ⌘K | Copy, Copy Number, Paste, Show Steps |
 

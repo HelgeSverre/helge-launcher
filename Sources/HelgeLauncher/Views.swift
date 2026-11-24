@@ -365,7 +365,8 @@ struct CalcCardView: View {
                 .font(Theme.sans(13))
                 .frame(height: 40)
             } else {
-                VStack(alignment: .leading, spacing: 2) {
+                // Right-aligned like a calculator display and the running results in the steps.
+                VStack(alignment: .trailing, spacing: 2) {
                     if let e = card.expression, !(l.showSteps && !card.steps.isEmpty) {
                         Text(e)
                             .font(Theme.mono(12))
@@ -374,18 +375,19 @@ struct CalcCardView: View {
                             .truncationMode(.head)
                     }
                     HStack(alignment: .firstTextBaseline, spacing: 12) {
+                        if let d = card.detail {
+                            Text(d).font(Theme.sans(12)).foregroundStyle(Theme.text2).lineLimit(1)
+                        }
+                        Spacer(minLength: 8)
                         Text(card.answer)
                             .font(Theme.sans(28, .semibold).monospacedDigit())
                             .foregroundStyle(Theme.text)
                             .lineLimit(1)
                             .minimumScaleFactor(0.5)
                             .layoutPriority(1)
-                        Spacer(minLength: 8)
-                        if let d = card.detail {
-                            Text(d).font(Theme.sans(12)).foregroundStyle(Theme.text2).lineLimit(1)
-                        }
                     }
                 }
+                .frame(maxWidth: .infinity, alignment: .trailing)
                 .frame(height: 76)
                 if l.showSteps && !card.steps.isEmpty { steps }
             }

@@ -61,7 +61,10 @@ enum Format {
         return String(d[..<i]) + "." + String(d[i...])
     }
 
-    /// People-facing number: grouped digits, locale decimal mark, at most `maxFraction` decimals
+    /// Thousands separator in answers: a no-break space, the same in every locale.
+    static let group: Character = "\u{00A0}"
+
+    /// People-facing number: digits grouped by spaces, a `.` decimal point in every locale, at most `maxFraction` decimals
     /// (nil: 10 significant digits).
     static func display(_ x: Num, locale: CalcLocale, maxFraction: Int? = nil) -> String {
         var text: String
@@ -82,7 +85,7 @@ enum Format {
                 "0": "⁰", "1": "¹", "2": "²", "3": "³", "4": "⁴", "5": "⁵", "6": "⁶", "7": "⁷", "8": "⁸", "9": "⁹",
                 "-": "⁻",
             ]
-            let mant = localizeMark(String(text[..<e]), locale)
+            let mant = String(text[..<e])
             let exp = String(text[text.index(after: e)...].compactMap { sup[$0] })
             return mant.replacingOccurrences(of: "-", with: "−") + " × 10" + exp
         }
@@ -94,18 +97,15 @@ enum Format {
         let parts = text.split(separator: ".", omittingEmptySubsequences: false)
         var intPart = String(parts[0])
         let frac = parts.count > 1 ? String(parts[1]) : ""
-        if intPart.count > 4 || (intPart.count == 4 && locale.groupFourDigits) {
+        if intPart.count >= 4 {
             var grouped = ""
             for (i, ch) in intPart.reversed().enumerated() {
-                if i > 0 && i % 3 == 0 { grouped.append(locale.groupSeparator) }
+                if i > 0 && i % 3 == 0 { grouped.append(group) }
                 grouped.append(ch)
             }
             intPart = String(grouped.reversed())
         }
-        return (neg ? "−" : "") + intPart + (frac.isEmpty ? "" : String(locale.decimalMark) + frac)
+        return (neg ? "−" : "") + intPart + (frac.isEmpty ? "" : "." + frac)
     }
 
-    private static func localizeMark(_ s: String, _ locale: CalcLocale) -> String {
-        locale.decimalMark == "." ? s : s.replacingOccurrences(of: ".", with: String(locale.decimalMark))
-    }
 }

@@ -241,7 +241,7 @@ struct ActivityView: View {
     }
 
     static func seconds(_ t: TimeInterval) -> String {
-        String(format: "%.1f s", t).replacingOccurrences(of: ".", with: Locale.current.decimalSeparator ?? ".")
+        String(format: "%.1f s", t)
     }
 
     /// "Searched 1 · read 2 pages · 6,9 s"
@@ -345,8 +345,8 @@ struct BlockView: View {
             TableView(header: header, alignments: alignments, rows: rows)
         case .rule:
             Rectangle().fill(Theme.borderStrong).frame(height: 1).padding(.vertical, 4)
-        case .html(let raw):
-            Text(raw).font(Theme.mono(12)).foregroundStyle(Theme.muted)
+        case .details(let summary, let open, let blocks):
+            DetailsView(summary: summary, blocks: blocks, expanded: open)
         }
     }
 }
@@ -356,6 +356,52 @@ extension MarkdownView {
         var a = AttributedString(" ▍")
         a.foregroundColor = Theme.accentText
         return a
+    }
+}
+
+/// `<details>`: a bordered disclosure; the summary row toggles the body.
+struct DetailsView: View {
+    let summary: AttributedString
+    let blocks: [MDBlock]
+    @State var expanded: Bool
+    @State private var hover = false
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { expanded.toggle() }
+            } label: {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 10, weight: .semibold))
+                        .foregroundStyle(Theme.muted)
+                        .rotationEffect(.degrees(expanded ? 90 : 0))
+                        .frame(width: 12)
+                    Text(summary)
+                        .font(Theme.sans(13.5, .medium))
+                        .foregroundStyle(Theme.text)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Spacer(minLength: 0)
+                }
+                .padding(.horizontal, 12).padding(.vertical, 8)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(hover ? Theme.raised : Theme.soft)
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .onHover { hover = $0 }
+            if expanded && !blocks.isEmpty {
+                Rectangle().fill(Theme.border).frame(height: 1)
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(Array(blocks.enumerated()), id: \.offset) { _, b in BlockView(block: b) }
+                }
+                .padding(.horizontal, 14).padding(.vertical, 10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .clipShape(RoundedRectangle(cornerRadius: Theme.radiusRow))
+        .overlay(RoundedRectangle(cornerRadius: Theme.radiusRow).strokeBorder(Theme.border, lineWidth: 1))
     }
 }
 

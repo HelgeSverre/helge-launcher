@@ -62,9 +62,10 @@ public struct CalcLocale: Sendable {
         let region = locale.region?.identifier ?? ""
         let norwegian = ["nb", "nn", "no"]
         var c: CalcLocale = norwegian.contains(lang) ? .nb : .en
-        c.decimalMark = locale.decimalSeparator?.first ?? "."
-        c.groupSeparator = locale.groupingSeparator?.first ?? ","
-        c.groupFourDigits = c.decimalMark == "."
+        // Queries read "." as the decimal point and "," as grouping whatever the region says;
+        // answers always print 1 000 000.00.
+        c.decimalMark = "."
+        c.groupSeparator = ","
         c.dayFirst = region != "US"
         c.acceptsNorwegian =
             c.nb || region == "NO" || languages.contains { l in norwegian.contains { l.hasPrefix($0) } }
@@ -128,17 +129,16 @@ public struct CalcAnswer {
     public let kind: Kind
     /// Secondary text beside the answer: the date and place of a time ("Tuesday 24 November · Oslo").
     public var detail: String? = nil
-    /// The number alone with the locale's decimal mark and no grouping, for spreadsheets; other values as shown.
+    /// The number alone with a `.` decimal point and no grouping, for spreadsheets; other values as shown.
     public var plain: String {
         switch kind {
         case .number, .quantity, .money:
             guard Double(canonical) != nil || canonical.contains("e") else { return display }
-            return decimalMark == "." ? canonical : canonical.replacingOccurrences(of: ".", with: String(decimalMark))
+            return canonical
         default:
             return display
         }
     }
-    var decimalMark: Character = "."
 
     public enum Kind: Sendable {
         case number, quantity, money, date, time, text, bool
@@ -388,7 +388,7 @@ public enum Calculator {
                 let rounded = shaped.value.rounded(.toNearestOrAwayFromZero, places: places)
                 d.value = Format.display(rounded, locale: out.ev.ctx.locale, maxFraction: places)
                 if places == 2, !(rounded.rational?.isInteger ?? false) {
-                    let mark = out.ev.ctx.locale.decimalMark
+                    let mark: Character = "."
                     let parts = d.value.split(separator: mark)
                     if parts.count == 1 {
                         d.value += String(mark) + "00"
@@ -417,8 +417,7 @@ public enum Calculator {
             display: d.value,
             displayUnit: d.unit,
             kind: kind,
-            detail: detail,
-            decimalMark: out.ev.ctx.locale.decimalMark
+            detail: detail
         )
     }
 

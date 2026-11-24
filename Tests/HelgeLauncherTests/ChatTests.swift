@@ -203,6 +203,59 @@ import Testing
         #expect(MarkdownModel.codeBlocks(md) == ["a", "b"])
     }
 
+    @Test func detailsFoldsTheBlocksBetweenItsTags() {
+        let md = """
+            Intro
+
+            <details>
+            <summary>Show the <code>SQL</code></summary>
+
+            Body with **bold**.
+
+            ```sql
+            select 1
+            ```
+
+            </details>
+
+            <details open><summary>Inline</summary>Short body</details>
+
+            <!-- a comment -->
+            After
+            """
+        let b = MarkdownModel.blocks(md)
+        #expect(b.count == 4)
+        guard b.count == 4, case .details(let s1, let o1, let inner) = b[1],
+            case .details(let s2, let o2, let inner2) = b[2]
+        else {
+            Issue.record("\(b)")
+            return
+        }
+        #expect(
+            String(s1.characters).replacingOccurrences(of: "\u{2009}", with: "") == "Show the SQL" && !o1
+                && inner.count == 2
+        )
+        #expect(String(s2.characters) == "Inline" && o2 && inner2.count == 1)
+        #expect(MarkdownModel.codeBlocks(md) == ["select 1"])
+        #expect(MarkdownModel.plainText(md).hasSuffix("After"))
+    }
+
+    @Test func nestedAndUnclosedDetails() {
+        let b = MarkdownModel.blocks(
+            "<details><summary>A</summary>\n\n<details><summary>B</summary>\n\nx\n\n</details>\n\ny"
+        )
+        guard case .details(_, _, let inner) = b.first else {
+            Issue.record("\(b)")
+            return
+        }
+        #expect(b.count == 1 && inner.count == 2)
+        if case .details(let s, _, _) = inner[0] {
+            #expect(String(s.characters) == "B")
+        } else {
+            Issue.record("nested")
+        }
+    }
+
     @Test func unfinishedStreamStillParses() {
         #expect(!MarkdownModel.blocks("| a | b |\n|---|").isEmpty)
         #expect(!MarkdownModel.blocks("```swift\nlet x").isEmpty)

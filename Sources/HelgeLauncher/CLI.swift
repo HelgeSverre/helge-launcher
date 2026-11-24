@@ -19,7 +19,7 @@ enum CLI {
     }
 
     static let commands = [
-        "--search", "--ai", "--mode", "--plugin", "--expand", "--render", "--render-helper", "--calc",
+        "--search", "--ai", "--mode", "--plugin", "--expand", "--render", "--render-helper", "--calc", "--answer",
     ]
 
     static func handles(_ args: [String]) -> Bool { commands.contains(where: args.contains) }
@@ -156,6 +156,10 @@ enum CLI {
         if l.mode == .ai {
             var turns = sampleTurns
             if args.has("--busy") { turns.append(busyTurn) }
+            // --answer FILE: the last answer's Markdown, to preview rendering.
+            if let f = args.value("--answer"), let md = try? String(contentsOfFile: f, encoding: .utf8) {
+                turns[turns.count - 1].answer = md
+            }
             l.conversation = Conversation(backend: OpenCode.shared, turns: turns)
             if args.has("--selected") { l.selectedTurn = turns.last?.id }
             if args.has("--menu") {

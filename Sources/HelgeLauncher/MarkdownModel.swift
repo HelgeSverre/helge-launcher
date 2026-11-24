@@ -13,7 +13,8 @@ indirect enum MDBlock {
     case code(language: String, text: String)
     case table(header: [AttributedString], alignments: [HorizontalAlignment], rows: [[AttributedString]])
     case rule
-    case html(String)
+    /// `<details><summary>…</summary>…</details>`; `open` is the attribute.
+    case details(summary: AttributedString, open: Bool, blocks: [MDBlock])
 }
 
 struct MDListItem {
@@ -32,7 +33,133 @@ enum MarkdownModel {
     /// Blocks for `text`; safe on partial (streaming) input.
     static func blocks(_ text: String) -> [MDBlock] {
         let doc = Document(parsing: text, options: [.disableSmartOpts])
-        return doc.children.compactMap(block)
+        return blockList(doc.children)
+    }
+
+    // MARK: HTML
+
+    /// One piece of an HTML block, for folding `<details>` around the blocks between its tags.
+    private enum Piece {
+        case open(Bool)
+        case summary(String)
+        case close
+        case markdown(String)
+        case block(MDBlock)
+    }
+
+    private static let detailsTag = try! NSRegularExpression(
+        pattern: #"<details\b([^>]*)>|</details\s*>|<summary\b[^>]*>(.*?)</summary\s*>"#,
+        options: [.caseInsensitive, .dotMatchesLineSeparators]
+    )
+    private static let anyTag = try! NSRegularExpression(
+        pattern: #"<!--.*?-->|</?[A-Za-z][^>]*>"#,
+        options: [.dotMatchesLineSeparators]
+    )
+
+    /// HTML without its tags and comments, entities for &, <, > and quotes decoded.
+    static func stripTags(_ html: String) -> String {
+        let ns = html as NSString
+        var out = anyTag.stringByReplacingMatches(
+            in: html,
+            range: NSRange(location: 0, length: ns.length),
+            withTemplate: ""
+        )
+        for (e, c) in [("&lt;", "<"), ("&gt;", ">"), ("&quot;", "\""), ("&#39;", "'"), ("&nbsp;", " "), ("&amp;", "&")]
+        {
+            out = out.replacingOccurrences(of: e, with: c)
+        }
+        return out.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private struct Frame {
+        var summary: AttributedString?
+        var open: Bool
+        var blocks: [MDBlock] = []
+    }
+
+    private static func pieces(_ html: String) -> [Piece] {
+        let ns = html as NSString
+        var out: [Piece] = []
+        var at = 0
+        func text(upTo end: Int) {
+            let t = ns.substring(with: NSRange(location: at, length: end - at))
+            if !t.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty { out.append(.markdown(t)) }
+        }
+        for m in detailsTag.matches(in: html, range: NSRange(location: 0, length: ns.length)) {
+            text(upTo: m.range.location)
+            let tag = ns.substring(with: m.range).lowercased()
+            if tag.hasPrefix("</") {
+                out.append(.close)
+            } else if tag.hasPrefix("<summary") {
+                out.append(.summary(m.range(at: 2).location == NSNotFound ? "" : ns.substring(with: m.range(at: 2))))
+            } else {
+                let attrs = m.range(at: 1).location == NSNotFound ? "" : ns.substring(with: m.range(at: 1))
+                out.append(
+                    .open(attrs.range(of: #"\bopen\b"#, options: [.regularExpression, .caseInsensitive]) != nil)
+                )
+            }
+            at = m.range.location + m.range.length
+        }
+        text(upTo: ns.length)
+        return out
+    }
+
+    /// Blocks for a run of sibling nodes. `<details>` usually spans several nodes (the opening tag, the
+    /// Markdown body, the closing tag), so they are folded here rather than in `block`. An unclosed
+    /// `<details>` (a streaming answer) ends with the run.
+    static func blockList<S: Sequence>(_ children: S) -> [MDBlock] where S.Element == Markup {
+        var ps: [Piece] = []
+        for c in children {
+            if let h = c as? HTMLBlock {
+                let raw = h.rawHTML
+                if raw.range(of: "<\\/?(details|summary)\\b", options: [.regularExpression, .caseInsensitive]) != nil {
+                    ps += pieces(raw)
+                } else {
+                    // Other HTML: its text as Markdown, the tags dropped (comments vanish).
+                    ps.append(.markdown(stripTags(raw)))
+                }
+            } else if let b = block(c) {
+                ps.append(.block(b))
+            }
+        }
+        var stack: [Frame] = [Frame(open: true)]
+        func close() {
+            let f = stack.removeLast()
+            stack[stack.count - 1].blocks.append(
+                .details(summary: f.summary ?? styled("Details"), open: f.open, blocks: f.blocks)
+            )
+        }
+        for p in ps {
+            switch p {
+            case .open(let o): stack.append(Frame(open: o))
+            case .summary(let t):
+                if stack.count > 1 && stack[stack.count - 1].summary == nil {
+                    stack[stack.count - 1].summary = summaryText(t)
+                } else {
+                    stack[stack.count - 1].blocks += blocks(stripTags(t))
+                }
+            case .close: if stack.count > 1 { close() }
+            case .markdown(let t): stack[stack.count - 1].blocks += blocks(t)
+            case .block(let b): stack[stack.count - 1].blocks.append(b)
+            }
+        }
+        while stack.count > 1 { close() }
+        return stack[0].blocks
+    }
+
+    /// The summary line: inline Markdown and HTML (`<b>`, `<code>`) reduced to styled text.
+    static func summaryText(_ html: String) -> AttributedString {
+        var t = html
+        for (tag, md) in [("b", "**"), ("strong", "**"), ("i", "_"), ("em", "_"), ("code", "`")] {
+            t = t.replacingOccurrences(
+                of: "</?\(tag)\\s*>",
+                with: md,
+                options: [.regularExpression, .caseInsensitive]
+            )
+        }
+        let doc = Document(parsing: stripTags(t), options: [.disableSmartOpts])
+        guard let p = doc.children.first(where: { $0 is Paragraph }) else { return styled(stripTags(t)) }
+        return inlines(p)
     }
 
     // MARK: Blocks
@@ -69,7 +196,7 @@ enum MarkdownModel {
                     var rest = Array(p.children.dropFirst(used))
                     while rest.first is SoftBreak || rest.first is LineBreak { rest.removeFirst() }
                     children.removeFirst()
-                    var blocks = children.compactMap(block)
+                    var blocks = blockList(children)
                     if !rest.isEmpty {
                         blocks.insert(
                             .paragraph(rest.reduce(into: AttributedString()) { $0 += inline($1, Style()) }),
@@ -79,7 +206,7 @@ enum MarkdownModel {
                     return .alert(kind: kind, blocks: blocks)
                 }
             }
-            return .quote(children.compactMap(block))
+            return .quote(blockList(children))
         case let c as CodeBlock:
             var code = c.code
             if code.hasSuffix("\n") { code.removeLast() }
@@ -97,8 +224,8 @@ enum MarkdownModel {
             return .table(header: header, alignments: alignments, rows: rows)
         case is ThematicBreak:
             return .rule
-        case let h as HTMLBlock:
-            return .html(h.rawHTML.trimmingCharacters(in: .whitespacesAndNewlines))
+        case is HTMLBlock:
+            return nil  // folded by blockList
         default:
             let text = m.format().trimmingCharacters(in: .whitespacesAndNewlines)
             return text.isEmpty ? nil : .paragraph(styled(text))
@@ -107,7 +234,7 @@ enum MarkdownModel {
 
     static func item(_ li: ListItem) -> MDListItem {
         let checked: Bool? = li.checkbox.map { $0 == .checked }
-        return MDListItem(checked: checked, blocks: li.children.compactMap(block))
+        return MDListItem(checked: checked, blocks: blockList(li.children))
     }
 
     // MARK: Inline
@@ -210,7 +337,7 @@ enum MarkdownModel {
         case .table(let h, _, let rows):
             return ([h] + rows).map { $0.map(s).joined(separator: "\t") }.joined(separator: "\n")
         case .rule: return "—"
-        case .html(let t): return t
+        case .details(let summary, _, let bs): return ([s(summary)] + bs.map(plain)).joined(separator: "\n")
         }
     }
 
@@ -221,7 +348,7 @@ enum MarkdownModel {
             for b in bs {
                 switch b {
                 case .code(_, let t): out.append(t)
-                case .quote(let x), .alert(_, let x): walk(x)
+                case .quote(let x), .alert(_, let x), .details(_, _, let x): walk(x)
                 case .list(_, _, let items): for it in items { walk(it.blocks) }
                 default: break
                 }

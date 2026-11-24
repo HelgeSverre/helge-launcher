@@ -55,10 +55,11 @@ struct CalculatorRowTests {
         #expect(!l.computeItems().contains { $0.id.hasPrefix("calc") })
     }
 
-    @Test func copyNumberUsesTheLocaleDecimalMark() {
+    @Test func answersUseAPeriodAndSpacesInEveryLocale() {
         let items = launcher("1/8", locale: "nb_NO").computeItems()
-        #expect(items.first?.title == "0,125")
-        #expect(items.first?.actions[1].detail == "copy 0,125")
+        #expect(items.first?.title == "0.125")
+        #expect(items.first?.actions[1].detail == "copy 0.125")
+        #expect(launcher("1000000.5 * 2", locale: "nb_NO").computeItems().first?.title == "2\u{00A0}000\u{00A0}001")
     }
 
     @Test func norgesBankCSVIsScaledByTheUnitMultiplier() {

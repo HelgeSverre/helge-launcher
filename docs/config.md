@@ -120,7 +120,7 @@ The commands need [CleanShot X](https://cleanshot.com). CleanShot's own global s
 | Key | Type | Default | Meaning |
 |---|---|---|---|
 | `enabled` | bool | `true` | Answers calculations in the root search ([calculator.md](calculator.md)) |
-| `locale` | string | `"system"` | Number format and words: `"system"`, or a locale such as `"nb_NO"` or `"en_US"` |
+| `locale` | string | `"system"` | Query words and date order: `"system"`, or a locale such as `"nb_NO"` or `"en_US"`. Answers always print `1 000 000.00`: a period for decimals and spaces between thousands. |
 | `rates` | bool | `true` | Fetches exchange rates from Norges Bank and CoinGecko, at most every six hours |
 
 ## `[[command]]`

@@ -88,7 +88,7 @@ enum Describe {
                 let inner = node(args[0], loc)
                 return (f == "sqrt" ? "√" : "∛") + (inner.contains(" ") ? "(" + inner + ")" : inner)
             }
-            return f + "(" + args.map { node($0, loc) }.joined(separator: loc.decimalMark == "," ? "; " : ", ") + ")"
+            return f + "(" + args.map { node($0, loc) }.joined(separator: ", ") + ")"
         case .convert(let a, let t, let rate):
             if case .expr(let x) = t { return node(a, loc) + (nb ? " i " : " in ") + node(x, loc) }
             return node(a, loc) + (rate.map { " @ " + node($0, loc) } ?? "") + " → " + target(t, nb: nb)
