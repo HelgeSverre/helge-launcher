@@ -13,9 +13,24 @@ final class Launcher: ObservableObject {
             if mode != oldValue {
                 pluginTask?.cancel()
                 pluginTask = nil
+                if mode.samplesProcesses {
+                    startSampling()
+                } else if oldValue.samplesProcesses {
+                    stopSampling()
+                }
+                if mode != .processes { expandedGroup = nil }
             }
         }
     }
+    /// What the processes list sorts by (Tab cycles).
+    @Published var procSort: ProcSort = .cpu
+    /// The process group listed with its processes.
+    @Published var expandedGroup: String?
+    /// The latest process sample.
+    var snapshot: SystemSnapshot?
+    var samplingTask: Task<Void, Never>?
+    /// A destructive action waiting for its shortcut a second time.
+    var pendingConfirm: (id: String, at: Date)?
     @Published private(set) var items: [Item] = []
     @Published var selected = 0
     @Published var showActions = false
@@ -66,6 +81,7 @@ final class Launcher: ObservableObject {
     /// Opens the panel; keeps the AI chat unless a mode or query is given.
     func show(mode m: Mode = .root, query q: String? = nil) {
         AppIndex.shared.refreshIfStale()
+        sampleIfStale()
         if config.calculator.enabled { Rates.shared.refreshIfStale(enabled: config.calculator.rates) }
         if m != .root {
             enter(m)
@@ -167,6 +183,15 @@ final class Launcher: ObservableObject {
                 if calc.first?.calc?.style == .result, r.first?.id == "ai.ask" { r.append(r.removeFirst()) }
                 r = calc + r
             }
+            if !q.isEmpty {
+                r = addRunningInfo(r, query: q)
+                if let port = portAnswer(q) {
+                    // The port answer replaces a calculator error such as ":5173".
+                    r.removeAll { $0.calc?.style == .error }
+                    if r.first?.id == "ai.ask" { r.append(r.removeFirst()) }
+                    r.insert(port, at: 0)
+                }
+            }
             return r
         case .clipboard:
             let all = ClipboardHistory.shared.items
@@ -181,6 +206,14 @@ final class Launcher: ObservableObject {
             return chatItems()
         case .stats:
             return statsItems()
+        case .processes:
+            return processItems()
+        case .ports:
+            return portItems()
+        case .leftovers:
+            return leftoverItems()
+        case .storage:
+            return storageItems()
         case .plugin, .ai:
             return items
         }
@@ -245,6 +278,7 @@ final class Launcher: ObservableObject {
                 enter(.plugin(p.name), query: String(query.dropFirst(prefix.count + 1)))
                 return
             }
+            if ProcModel.portQuery(query) != nil { sampleIfStale(maxAge: 3) }
             refresh()
         default:
             refresh()
@@ -268,6 +302,12 @@ final class Launcher: ObservableObject {
             if unchanged { queryChanged() }
         case .ai:
             break
+        case .storage:
+            StorageScanner.shared.changed = { [weak self] in
+                if self?.mode == .storage { self?.setItems(self?.computeItems() ?? [], keepSelection: true) }
+            }
+            StorageScanner.shared.refresh()
+            refresh()
         default:
             refresh()
         }
@@ -375,6 +415,10 @@ final class Launcher: ObservableObject {
     }
 
     func tab() {
+        if mode == .processes {
+            cycleSort()
+            return
+        }
         let q = query.trimmingCharacters(in: .whitespaces)
         if mode == .root, config.ai.enabled, !q.isEmpty { askAI(q) }
     }

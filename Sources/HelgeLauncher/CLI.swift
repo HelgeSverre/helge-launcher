@@ -57,6 +57,10 @@ enum CLI {
         case "ai": return .ai
         case "chats": return .chats
         case "stats": return .stats
+        case "processes": return .processes
+        case "ports": return .ports
+        case "leftovers": return .leftovers
+        case "storage": return .storage
         default: return .root
         }
     }
@@ -139,14 +143,55 @@ enum CLI {
         AppIndex.shared.scan()
         l.mode = mode(args.value("--mode"))
         if l.mode == .onepassword { await OnePassword.shared.refresh() }
+        l.stopSampling()
+        applySystemFlags(l, args)
+        _ = await SystemSampler.shared.sample()
+        try? await Task.sleep(nanoseconds: 700_000_000)
+        let started = Date()
+        l.snapshot = await SystemSampler.shared.sample(network: l.procSort == .network)
+        if args.has("--timing") {
+            print(String(format: "sample took %.0f ms", Date().timeIntervalSince(started) * 1000))
+        }
         l.query = args.value("--search") ?? ""
         let items = l.computeItems()
         print("\(items.count) results (apps indexed: \(AppIndex.shared.apps.count))")
         for it in items.prefix(Int(args.value("--limit") ?? "15") ?? 15) {
             let subtitle = l.mode == .snippets ? "" : it.subtitle
-            print(String(format: "%7.2f  %@  %@  %@", it.score, it.title, subtitle, it.accessory))
+            print(
+                String(
+                    format: "%7.2f  %@  %@  %@  %@",
+                    it.score,
+                    it.title,
+                    subtitle,
+                    it.accessory,
+                    it.system.map { "\($0)" } ?? ""
+                )
+            )
         }
         return 0
+    }
+
+    /// --sort cpu|memory|disk|network (and --open-group <title> in renders).
+    private static func applySystemFlags(_ l: Launcher, _ args: Arguments) {
+        if let s = args.value("--sort"), let sort = ProcSort.allCases.first(where: { $0.rawValue.lowercased() == s }) {
+            l.procSort = sort
+        }
+    }
+
+    /// Two samples (CPU needs a difference) without the 2-second loop; blocks the caller.
+    private static func sampleNow(_ l: Launcher) {
+        l.stopSampling()
+        let sem = DispatchSemaphore(value: 0)
+        let network = l.procSort == .network
+        var snap: SystemSnapshot?
+        Task.detached {
+            _ = await SystemSampler.shared.sample(network: network)
+            try? await Task.sleep(nanoseconds: 700_000_000)
+            snap = await SystemSampler.shared.sample(network: network)
+            sem.signal()
+        }
+        sem.wait()
+        l.snapshot = snap
     }
 
     private static func render(_ cfg: Config, _ args: Arguments, to path: String) {
@@ -154,6 +199,15 @@ enum CLI {
         l.apply(cfg)
         AppIndex.shared.scan()
         l.mode = mode(args.value("--mode"))
+        applySystemFlags(l, args)
+        sampleNow(l)
+        if l.mode == .storage && args.has("--measure") {
+            StorageScanner.shared.refresh(maxAge: 0)
+            let deadline = Date().addingTimeInterval(300)
+            while !StorageScanner.shared.measuring.isEmpty && Date() < deadline {
+                RunLoop.main.run(until: Date().addingTimeInterval(0.2))
+            }
+        }
         if l.mode == .ai {
             var turns = sampleTurns
             if args.has("--busy") { turns.append(busyTurn) }
@@ -185,6 +239,10 @@ enum CLI {
         }
         l.query = args.value("--search") ?? ""
         if l.mode != .ai { l.setItems(l.computeItems(), keepSelection: false) }
+        if let g = args.value("--open-group"), let i = l.items.firstIndex(where: { $0.title == g }) {
+            l.selected = i
+            _ = l.expandSelected()
+        }
         if args.has("--steps") { l.showSteps = true }
         if args.has("--actions") {
             l.selected = 0

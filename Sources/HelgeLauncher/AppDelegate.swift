@@ -33,7 +33,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
         menu.item(withTag: MenuTag.grantAccessibility.rawValue)?.isHidden = PermissionHelper.shared.isTrusted
     }
 
-    /// `helgelauncher://show[?q=]`, `clipboard`, `emoji`, `snippets`, `1password`, `stats`, `ai[?q=]`.
+    /// `helgelauncher://show[?q=]`, `clipboard`, `emoji`, `snippets`, `1password`, `stats`, `processes`, `ports`, `storage`, `ai[?q=]`.
     func application(_ application: NSApplication, open urls: [URL]) {
         for u in urls {
             let q = URLComponents(url: u, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "q" }?.value
@@ -43,6 +43,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             case "snippets": launcher.show(mode: .snippets)
             case "1password": launcher.show(mode: .onepassword)
             case "stats": launcher.show(mode: .stats)
+            case "processes": launcher.show(mode: .processes)
+            case "ports": launcher.show(mode: .ports)
+            case "storage": launcher.show(mode: .storage)
             case "ai":
                 launcher.show()
                 if let q { launcher.askAI(q) } else { launcher.openAIChat() }
@@ -164,6 +167,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSMenuDelegate {
             if l.mode != .ai, l.mode != .chats, key == kVK_ANSI_Y, l.config.ai.enabled {
                 l.show()
                 l.showConversations()
+                return nil
+            }
+            if l.mode == .processes, key == kVK_ANSI_L {
+                l.enter(.leftovers)
                 return nil
             }
             switch key {

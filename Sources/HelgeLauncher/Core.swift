@@ -52,7 +52,18 @@ enum Mode: Equatable {
     case chats
     /// Usage statistics: what was run, how often.
     case stats
+    /// Running processes grouped by app.
+    case processes
+    /// TCP ports something listens on.
+    case ports
+    /// Dev tools left running after their session closed.
+    case leftovers
+    /// Free space and folders worth clearing.
+    case storage
     case plugin(String)
+
+    /// Modes fed by the process sampler while open.
+    var samplesProcesses: Bool { self == .processes || self == .ports || self == .leftovers }
 
     /// Id of the root-list item that opens this mode; frecency is recorded under it.
     var itemID: String {
@@ -65,6 +76,10 @@ enum Mode: Equatable {
         case .ai: return "mode.ai"
         case .chats: return "mode.chats"
         case .stats: return "mode.stats"
+        case .processes: return "mode.processes"
+        case .ports: return "mode.ports"
+        case .leftovers: return "mode.leftovers"
+        case .storage: return "mode.storage"
         case .plugin(let name): return "plugin:" + name
         }
     }
@@ -80,6 +95,10 @@ enum Mode: Equatable {
         case .ai: return "AI"
         case .chats: return "Chats"
         case .stats: return "Stats"
+        case .processes: return "Processes"
+        case .ports: return "Ports"
+        case .leftovers: return "Leftovers"
+        case .storage: return "Storage"
         case .plugin(let name): return name
         }
     }
@@ -87,7 +106,10 @@ enum Mode: Equatable {
     /// Root-list entries for every mode the config enables.
     static func entries(_ config: Config) -> [Item] {
         let modes: [Mode] =
-            [.clipboard, .emoji, .snippets, .onepassword, .ai, .chats, .stats] + config.plugin.map { .plugin($0.name) }
+            [
+                .clipboard, .emoji, .snippets, .onepassword, .ai, .chats, .stats, .processes, .ports, .leftovers,
+                .storage,
+            ] + config.plugin.map { .plugin($0.name) }
         return modes.compactMap { $0.entry(config) }
     }
 
@@ -136,6 +158,34 @@ enum Mode: Equatable {
                 subtitle: "Most used apps and commands",
                 keywords: ["stats", "usage", "most used", "history"]
             )
+        case .processes:
+            return item(
+                "Processes",
+                "cpu",
+                subtitle: "CPU, memory, quit apps",
+                keywords: ["activity monitor", "task manager", "kill", "top", "htop", "ps", "memory", "cpu"]
+            )
+        case .ports:
+            return item(
+                "Ports",
+                "network",
+                subtitle: "What is listening on which port",
+                keywords: ["lsof", "localhost", "server", "listening"]
+            )
+        case .leftovers:
+            return item(
+                "Leftover Dev Processes",
+                "exclamationmark.triangle",
+                subtitle: "Dev tools still running after their session closed",
+                keywords: ["orphan", "mcp", "pkill", "node", "zombie"]
+            )
+        case .storage:
+            return item(
+                "Storage",
+                "internaldrive",
+                subtitle: "Free space and folders worth clearing",
+                keywords: ["disk", "du", "df", "space", "cache", "clean"]
+            )
         case .plugin(let name):
             guard let p = config.plugin.first(where: { $0.name == name }) else { return nil }
             return Item(
@@ -171,6 +221,8 @@ struct Item: Identifiable {
     var calc: CalcCard?
     /// Drawn as a usage-statistics row.
     var usage: Usage?
+    /// Drawn as a process, port, port-answer or storage row.
+    var system: SystemRow?
     /// Group heading drawn above the first item of a run ("Today").
     var section: String?
 }

@@ -30,6 +30,8 @@ Signed with Developer ID and notarized; macOS 14 or later.
 | Emoji | "Search Emoji & Symbols" |
 | 1Password | "1Password": search items, copy password, username or one-time code (via the `op` CLI) |
 | AI | Tab sends what you typed to the AI; follow-ups continue the chat ([ai.md](docs/ai.md)) |
+| Processes | "Processes": CPU, memory, disk and network per app, quit or force quit, ports and samples; "Ports" lists what listens where, and typing `5173` in the search says what runs there ([system.md](docs/system.md)) |
+| Leftovers and storage | "Leftover Dev Processes" finds MCP servers and dev servers whose session closed; "Storage" shows free space and the caches worth clearing |
 | Usage statistics | "Usage Statistics": launches in total, today and this week, the split by kind, and every app and command ranked by use. ↵ opens one; ⌘K → Forget resets its count. |
 | Commands | Your own: open a URL, file or app, or run a shell command; optional global hotkey |
 | Plugins | Any program that prints JSON adds its own list: calculators, repo search, notes… ([plugins.md](docs/plugins.md)) |
@@ -100,6 +102,9 @@ Open the launcher from scripts, Shortcuts or other apps:
 | `helgelauncher://snippets` | Snippet search |
 | `helgelauncher://1password` | 1Password search |
 | `helgelauncher://stats` | Usage statistics |
+| `helgelauncher://processes` | Processes |
+| `helgelauncher://ports` | Ports |
+| `helgelauncher://storage` | Storage |
 | `helgelauncher://ai?q=question` | AI chat, asking the question (without `q`: the chat) |
 
 ```sh

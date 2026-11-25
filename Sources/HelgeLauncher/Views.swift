@@ -99,7 +99,15 @@ struct SearchField: NSViewRepresentable {
         }
 
         func control(_ control: NSControl, textView: NSTextView, doCommandBy sel: Selector) -> Bool {
-            parent.onCommand(sel)
+            // ← and → move the caret; only at the start or end of the text do they reach the list.
+            let r = textView.selectedRange()
+            if sel == #selector(NSResponder.moveRight(_:)),
+                r.length > 0 || r.location < (textView.string as NSString).length
+            {
+                return false
+            }
+            if sel == #selector(NSResponder.moveLeft(_:)), r.length > 0 || r.location > 0 { return false }
+            return parent.onCommand(sel)
         }
     }
 }
@@ -140,6 +148,7 @@ struct LauncherView: View {
                     )
             }
             SearchField(text: $l.query, placeholder: placeholder, focusToken: l.focusToken, onCommand: handle)
+            if l.mode == .processes { SortTabs(sort: l.procSort) }
             if l.mode == .ai && !l.conversation.turns.isEmpty {
                 Text(l.conversation.title).font(Theme.sans(12)).foregroundStyle(Theme.muted).lineLimit(1)
                     .frame(maxWidth: 220, alignment: .trailing)
@@ -174,6 +183,10 @@ struct LauncherView: View {
             return l.conversation.turns.isEmpty ? "Ask anything…" : "Follow up…"
         case .chats: return "Search conversations…"
         case .stats: return "Search usage…"
+        case .processes: return "Filter processes…"
+        case .ports: return "Port, app or folder…"
+        case .leftovers: return "Filter leftovers…"
+        case .storage: return "Filter folders…"
         default: return "Search \(l.mode.title)…"
         }
     }
@@ -185,6 +198,8 @@ struct LauncherView: View {
         case #selector(NSResponder.insertNewline(_:)): l.activate()
         case #selector(NSResponder.cancelOperation(_:)): l.back()
         case #selector(NSResponder.insertTab(_:)): l.tab()
+        case #selector(NSResponder.moveRight(_:)): return l.expandSelected()
+        case #selector(NSResponder.moveLeft(_:)): return l.collapseGroup()
         case #selector(NSResponder.deleteBackward(_:)):
             if l.query.isEmpty && l.mode != .root {
                 l.back()
@@ -200,6 +215,27 @@ struct LauncherView: View {
         VStack(spacing: 0) {
             if l.mode == .stats && l.query.isEmpty {
                 StatsSummary(summary: UsageSummary(History.shared.entries))
+                Rectangle().fill(Theme.border).frame(height: 1)
+            }
+            if l.mode == .processes, let s = l.snapshot {
+                SystemStrip(stats: s.stats, leftovers: l.leftoverSummary)
+                Rectangle().fill(Theme.border).frame(height: 1)
+            }
+            if l.mode == .leftovers, l.query.isEmpty, l.snapshot != nil {
+                let sum = l.leftoverSummary
+                LeftoversHeader(count: sum.count, memory: sum.memory)
+                Rectangle().fill(Theme.border).frame(height: 1)
+            }
+            if l.mode == .storage, l.query.isEmpty {
+                let disk = SystemSampler.diskSpace()
+                StorageHeader(
+                    free: disk.free,
+                    total: disk.total,
+                    listed: StorageScanner.shared.spots.compactMap { StorageScanner.shared.sizes[$0.id]?.bytes }.reduce(
+                        0,
+                        +
+                    )
+                )
                 Rectangle().fill(Theme.border).frame(height: 1)
             }
             list
@@ -224,6 +260,8 @@ struct LauncherView: View {
                                     ChatRow(item: it, selected: i == l.selected)
                                 } else if let u = it.usage {
                                     StatsRow(item: it, usage: u, selected: i == l.selected)
+                                } else if let sys = it.system {
+                                    SystemRowView(item: it, row: sys, selected: i == l.selected)
                                 } else {
                                     Row(item: it, selected: i == l.selected)
                                 }
@@ -262,9 +300,35 @@ struct LauncherView: View {
         }
         .overlay {
             if l.items.isEmpty && !(l.mode == .root && l.query.isEmpty) {
-                Text(l.mode == .onepassword ? "Loading 1Password…" : "No results")
+                Text(emptyText)
                     .font(Theme.sans(13)).foregroundStyle(Theme.muted)
             }
+        }
+    }
+
+    private var emptyText: String {
+        switch l.mode {
+        case .onepassword: return "Loading 1Password…"
+        case .processes, .ports, .leftovers:
+            return l.snapshot == nil
+                ? "Reading processes…"
+                : (l.mode == .leftovers && l.query.isEmpty
+                    ? "No leftovers: every dev tool has its session" : "No results")
+        default: return "No results"
+        }
+    }
+
+    private var systemFooter: String? {
+        switch l.mode {
+        case .processes: return l.snapshot.map { "\($0.procs.count) processes · every 2 s" }
+        case .ports: return "\(l.items.count) listening"
+        case .leftovers: return nil
+        case .storage:
+            guard let at = StorageScanner.shared.lastMeasured else { return "measuring…" }
+            guard StorageScanner.shared.measuring.isEmpty else { return "measuring…" }
+            let ago = Launcher.ago(at)
+            return ago == "now" ? "measured just now" : "measured \(ago) ago"
+        default: return nil
         }
     }
 
@@ -279,6 +343,8 @@ struct LauncherView: View {
             } else if l.mode == .chats {
                 Text("\(l.items.count) \(l.items.count == 1 ? "conversation" : "conversations")")
                     .font(Theme.mono(11)).foregroundStyle(Theme.muted)
+            } else if let note = systemFooter {
+                Text(note).font(Theme.mono(11)).foregroundStyle(Theme.muted)
             } else if l.mode == .stats {
                 Text("\(l.items.count) \(l.items.count == 1 ? "item" : "items")")
                     .font(Theme.mono(11)).foregroundStyle(Theme.muted)
@@ -305,6 +371,11 @@ struct LauncherView: View {
                 Hint(key: "⌘K", label: "Actions")
             } else if let it = l.current, it.opens != nil || !it.actions.isEmpty {
                 Hint(key: "↵", label: it.opens != nil ? "Open" : (it.actions.first?.title ?? ""))
+                if it.system != nil, it.actions.count > 1 { Hint(key: "⌘↵", label: it.actions[1].title) }
+                if l.mode == .processes, it.id.hasPrefix("group:") {
+                    Hint(key: "→", label: l.expandedGroup == String(it.id.dropFirst(6)) ? "Close" : "Processes")
+                }
+                if l.mode == .processes { Hint(key: "Tab", label: "Sort") }
                 if it.calc?.steps.isEmpty == false { Hint(key: "⌘I", label: l.showSteps ? "Hide Steps" : "Steps") }
                 if it.actions.count > 1 { Hint(key: "⌘K", label: "Actions") }
             }
